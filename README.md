@@ -1,73 +1,69 @@
-# React + TypeScript + Vite
+# Mockit
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Mockups 3D de iPhone en el navegador.** Sube una captura, encuadra la escena con el mouse y exporta un PNG listo para redes, portfolios o presentaciones — sin marca de agua.
 
-Currently, two official plugins are available:
+> *mockup3d* · alpha
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## Qué hace
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| | |
+| --- | --- |
+| **Pantalla** | Tu imagen mapeada sobre la pantalla del modelo 3D (JPEG, PNG y HEIC vía conversión en cliente). |
+| **Dispositivo** | Color del chasis con swatches + selector libre. |
+| **Fondo** | Color sólido para el canvas; combina con el tono del mockup. |
+| **Cámara** | OrbitControls: arrastra para reencuadrar; zoom con límites suaves. |
+| **Animación** | Auto-rotate opcional para previews dinámicos. |
+| **Export** | Un clic → `mockup-<timestamp>.png` desde el canvas WebGL. |
 
-## Expanding the ESLint configuration
+Detalle nerd: Dynamic Island, módulo de cámaras, botones laterales, sombras de contacto y entorno HDRI (*apartment*) para que el metal y el cristal se lean bien.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+---
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Stack
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+React 19 · Vite 8 · TypeScript
+@react-three/fiber · @react-three/drei · three
+Zustand · Tailwind CSS v4 · heic2any
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+---
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Arranque rápido
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
+
+Abre la URL que imprime Vite (por defecto `http://localhost:5173`).
+
+```bash
+npm run build    # producción
+npm run preview  # sirve el build local
+```
+
+---
+
+## Uso
+
+1. **Upload screenshot** — elige la captura de tu app o diseño.  
+2. Ajusta **color del dispositivo** y **fondo** hasta que cierre con tu marca.  
+3. Gira la vista con el mouse hasta el encuadre perfecto.  
+4. **Export PNG** — sin watermark; el archivo refleja exactamente lo que ves.
+
+*Tip:* si algo falla con HEIC, exporta la captura como JPEG o PNG desde el dispositivo y vuelve a subir.
+
+---
+
+## Licencia y estado
+
+Proyecto privado / en evolución (**alpha**). API y modelo pueden cambiar.
+
+---
+
+<p align="center">
+  <strong>Mockit</strong> — de captura a mockup en minutos.
+</p>

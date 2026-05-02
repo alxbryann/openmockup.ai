@@ -1,11 +1,41 @@
-import { Canvas } from '@react-three/fiber'
+import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei'
 import { Phone } from './Phone'
 import { useStore } from './store'
-import { forwardRef } from 'react'
+import { forwardRef, useRef } from 'react'
+import * as THREE from 'three'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
+
+const rollQuat = new THREE.Quaternion()
+const rollAxis = new THREE.Vector3(0, 0, -1)
+
+function OrbitWithRoll() {
+  const controlsRef = useRef<OrbitControlsImpl>(null)
+  const cameraRoll = useStore((s) => s.cameraRoll)
+  const autoRotate = useStore((s) => s.autoRotate)
+
+  useFrame(() => {
+    const ctl = controlsRef.current
+    if (!ctl || cameraRoll === 0) return
+    const cam = ctl.object as THREE.PerspectiveCamera
+    rollQuat.setFromAxisAngle(rollAxis, cameraRoll)
+    cam.quaternion.multiply(rollQuat)
+  })
+
+  return (
+    <OrbitControls
+      ref={controlsRef}
+      enablePan={false}
+      autoRotate={autoRotate}
+      autoRotateSpeed={1.2}
+      minDistance={18}
+      maxDistance={50}
+    />
+  )
+}
 
 export const Scene = forwardRef<HTMLCanvasElement>(function Scene(_props, ref) {
-  const { bgColor, autoRotate } = useStore()
+  const { bgColor } = useStore()
 
   return (
     <Canvas
@@ -30,13 +60,7 @@ export const Scene = forwardRef<HTMLCanvasElement>(function Scene(_props, ref) {
         far={12}
       />
       <Environment preset="apartment" environmentIntensity={0.4} />
-      <OrbitControls
-        enablePan={false}
-        autoRotate={autoRotate}
-        autoRotateSpeed={1.2}
-        minDistance={18}
-        maxDistance={50}
-      />
+      <OrbitWithRoll />
     </Canvas>
   )
 })

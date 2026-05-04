@@ -1,0 +1,203 @@
+import { useEffect, useMemo } from 'react'
+import * as THREE from 'three'
+import { invalidate, useThree } from '@react-three/fiber'
+import { useStore } from './store'
+
+/**
+ * `ShapeGeometry` in three@0.184 sets `uv` to raw vertex (x,y) — not [0,1]. Without this,
+ * textures only sample a ~1×1 patch at the center (clamp) and look like a tiny thumbnail.
+ */
+function applyBoundingBoxUVs(geom: THREE.BufferGeometry, width: number, height: number) {
+  const pos = geom.getAttribute('position')
+  const uv = geom.getAttribute('uv')
+  if (!pos || !uv) return
+  const pa = pos.array as Float32Array
+  const uva = uv.array as Float32Array
+  const hw = width / 2
+  const hh = height / 2
+  for (let i = 0; i < pa.length; i += 3) {
+    const vx = pa[i]
+    const vy = pa[i + 1]
+    const j = (i / 3) * 2
+    uva[j] = (vx + hw) / width
+    uva[j + 1] = (vy + hh) / height
+  }
+  uv.needsUpdate = true
+}
+
+/** Rotate sampling 180° on the quad (fixes upside-down / mirrored screenshots on some lid layouts). */
+function flipUv180(geom: THREE.BufferGeometry) {
+  const uv = geom.getAttribute('uv')
+  if (!uv) return
+  const uva = uv.array as Float32Array
+  for (let i = 0; i < uva.length; i += 2) {
+    uva[i] = 1 - uva[i]
+    uva[i + 1] = 1 - uva[i + 1]
+  }
+  uv.needsUpdate = true
+}
+
+export function roundedRectShape(w: number, h: number, r: number): THREE.Shape {
+  const s = new THREE.Shape()
+  const x = -w / 2,
+    y = -h / 2
+  s.moveTo(x + r, y)
+  s.lineTo(x + w - r, y)
+  s.quadraticCurveTo(x + w, y, x + w, y + r)
+  s.lineTo(x + w, y + h - r)
+  s.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+  s.lineTo(x + r, y + h)
+  s.quadraticCurveTo(x, y + h, x, y + h - r)
+  s.lineTo(x, y + r)
+  s.quadraticCurveTo(x, y, x + r, y)
+  return s
+}
+
+export type ScreenshotPlaneProps = {
+  screenshot: string | null
+  /** Full opening width (matches bezel hole). */
+  screenW: number
+  screenH: number
+  /** Inner corner radius of the opening (before inset). */
+  openingCornerR: number
+  /** Per-side inset of the lit mesh vs opening. */
+  planeInset?: number
+  /** Z offset from parent (lid local space: +Z is toward viewer when lid faces +Z). */
+  z?: number
+  /** When true, UVs are flipped so the texture reads upright on laptop lids that use the opposite winding. */
+  flipTexture180?: boolean
+}
+
+/** R3F can reset `map` on reconciler passes; keep one THREE material and assign `map` imperatively. */
+export function ScreenshotPlane({
+  screenshot,
+  screenW,
+  screenH,
+  openingCornerR,
+  planeInset = 0.08,
+  z = 0,
+  flipTexture180 = false,
+}: ScreenshotPlaneProps) {
+  const mat = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(0x050505),
+        toneMapped: false,
+        depthWrite: true,
+        polygonOffset: true,
+        polygonOffsetFactor: -4,
+        polygonOffsetUnits: -4,
+      }),
+    [],
+  )
+  const gl = useThree((s) => s.gl)
+  const setScreenLoadError = useStore((s) => s.setScreenLoadError)
+
+  useEffect(() => {
+    /* eslint-disable react-hooks/immutability */
+    if (!screenshot) {
+      mat.map?.dispose()
+      mat.map = null
+      mat.color.set(0x050505)
+      mat.needsUpdate = true
+      return
+    }
+
+    let cancelled = false
+    queueMicrotask(() => setScreenLoadError(null))
+
+    const loader = new THREE.TextureLoader()
+    loader.load(
+      screenshot,
+      (tex) => {
+        if (cancelled) {
+          tex.dispose()
+          return
+        }
+        tex.colorSpace = THREE.SRGBColorSpace
+        tex.wrapS = THREE.ClampToEdgeWrapping
+        tex.wrapT = THREE.ClampToEdgeWrapping
+        tex.minFilter = THREE.LinearMipmapLinearFilter
+        tex.magFilter = THREE.LinearFilter
+        tex.generateMipmaps = true
+        tex.anisotropy = Math.min(4, gl.capabilities.getMaxAnisotropy())
+        tex.needsUpdate = true
+        mat.map?.dispose()
+        mat.map = tex
+        mat.color.set(0xffffff)
+        mat.needsUpdate = true
+        invalidate()
+        setScreenLoadError(null)
+      },
+      undefined,
+      () => {
+        if (cancelled) return
+        mat.map?.dispose()
+        mat.map = null
+        mat.color.set(0x050505)
+        mat.needsUpdate = true
+        setScreenLoadError(
+          'No se pudo mostrar la imagen en 3D. Prueba JPEG o PNG, o exporta la captura sin HEIC.',
+        )
+      },
+    )
+
+    return () => {
+      cancelled = true
+      mat.map?.dispose()
+      mat.map = null
+      mat.color.set(0x050505)
+      mat.needsUpdate = true
+    }
+    /* eslint-enable react-hooks/immutability */
+  }, [screenshot, gl, mat, setScreenLoadError])
+
+  useEffect(
+    () => () => {
+      mat.map?.dispose()
+      mat.dispose()
+    },
+    [mat],
+  )
+
+  const pw = screenW - planeInset * 2
+  const ph = screenH - planeInset * 2
+  const cornerR = Math.max(0.06, openingCornerR - planeInset)
+
+  const screenGeom = useMemo(() => {
+    const shape = roundedRectShape(pw, ph, cornerR)
+    const g = new THREE.ShapeGeometry(shape, 64)
+    applyBoundingBoxUVs(g, pw, ph)
+    if (flipTexture180) flipUv180(g)
+    return g
+  }, [pw, ph, cornerR, flipTexture180])
+
+  useEffect(
+    () => () => {
+      screenGeom.dispose()
+    },
+    [screenGeom],
+  )
+
+  return (
+    <mesh position={[0, 0, z]} geometry={screenGeom}>
+      <primitive object={mat} attach="material" />
+    </mesh>
+  )
+}
+
+export function roundedHolePath(w: number, h: number, r: number): THREE.Path {
+  const path = new THREE.Path()
+  const x = -w / 2,
+    y = -h / 2
+  path.moveTo(x + r, y)
+  path.quadraticCurveTo(x, y, x, y + r)
+  path.lineTo(x, y + h - r)
+  path.quadraticCurveTo(x, y + h, x + r, y + h)
+  path.lineTo(x + w - r, y + h)
+  path.quadraticCurveTo(x + w, y + h, x + w, y + h - r)
+  path.lineTo(x + w, y + r)
+  path.quadraticCurveTo(x + w, y, x + w - r, y)
+  path.lineTo(x + r, y)
+  return path
+}

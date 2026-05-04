@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { exportPixelSize } from './highResCapture'
 import { Scene } from './Scene'
-import { useStore } from './store'
+import { useStore, type DeviceKind } from './store'
+
+const DEVICE_OPTIONS: { id: DeviceKind; label: string }[] = [
+  { id: 'phone', label: 'Phone' },
+  { id: 'mac', label: 'Mac' },
+]
 
 type ExportPreset = 'screen' | 1920 | 3840 | 7680
 
 const EXPORT_PRESETS: { id: ExportPreset; label: string; hint: string }[] = [
-  { id: 'screen', label: 'Pantalla', hint: 'rápido, tamaño del visor' },
-  { id: 1920, label: '1080p', hint: 'lado largo 1920 px' },
-  { id: 3840, label: '4K', hint: 'lado largo 3840 px' },
-  { id: 7680, label: '8K', hint: 'lado largo 7680 px' },
+  { id: 'screen', label: 'Screen', hint: 'fast, viewport size' },
+  { id: 1920, label: '1080p', hint: 'long edge 1920 px' },
+  { id: 3840, label: '4K', hint: 'long edge 3840 px' },
+  { id: 7680, label: '8K', hint: 'long edge 7680 px' },
 ]
 
 const DEVICE_SWATCHES = ['#1a1a1a', '#e8e8e8', '#1e3a5f', '#8b2222', '#c9a227', '#b4b8c0'] as const
@@ -20,6 +25,7 @@ export default function App() {
   const {
     screenshot,
     screenLoadError,
+    deviceKind,
     deviceColor,
     bgColor,
     autoRotate,
@@ -27,16 +33,21 @@ export default function App() {
     cameraRoll,
     setScreenshot,
     setScreenLoadError,
+    setDeviceKind,
     setDeviceColor,
     setBgColor,
     setAutoRotate,
     setUiTheme,
     setCameraRoll,
-    toggleCameraPanFree,
+    deviceRotation,
+    setDeviceRotationAxis,
+    resetDeviceRotation,
+    setCameraPanFree,
   } = useStore()
   const [exporting, setExporting] = useState(false)
   const [exportPreset, setExportPreset] = useState<ExportPreset>(3840)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [sidePanelOpen, setSidePanelOpen] = useState(true)
 
   useEffect(() => {
     document.documentElement.dataset.theme = uiTheme
@@ -47,13 +58,25 @@ export default function App() {
       if (e.defaultPrevented) return
       const el = e.target as HTMLElement | null
       if (el?.closest('input, textarea, select, [contenteditable="true"]')) return
-      if (e.key !== 'h' && e.key !== 'H') return
-      e.preventDefault()
-      toggleCameraPanFree()
+      const k = e.key.toLowerCase()
+      if (k === 'h') {
+        e.preventDefault()
+        setCameraPanFree(true)
+        return
+      }
+      if (k === 'v') {
+        e.preventDefault()
+        setCameraPanFree(false)
+        return
+      }
+      if (k === '[') {
+        e.preventDefault()
+        setSidePanelOpen((open) => !open)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [toggleCameraPanFree])
+  }, [setCameraPanFree])
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -83,8 +106,8 @@ export default function App() {
       console.error(err)
       setScreenLoadError(
         isHeic
-          ? 'No se pudo convertir HEIC. Exporta la captura como JPEG o PNG e inténtalo de nuevo.'
-          : 'No se pudo leer el archivo.',
+          ? 'Could not convert HEIC. Export the screenshot as JPEG or PNG and try again.'
+          : 'Could not read the file.',
       )
     }
   }
@@ -96,7 +119,7 @@ export default function App() {
       try {
         const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
         if (!canvas) {
-          setExportError('No se encontró el lienzo 3D.')
+          setExportError('3D canvas not found.')
           return
         }
         const capture = useStore.getState().captureSceneAtSize
@@ -107,7 +130,7 @@ export default function App() {
           if (gl) {
             const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number
             if (w > maxTex || h > maxTex) {
-              setExportError(`Esta GPU admite como mucho ${maxTex}px por lado. Elige otra resolución.`)
+              setExportError(`This GPU supports at most ${maxTex}px per side. Pick another resolution.`)
               return
             }
           }
@@ -121,7 +144,7 @@ export default function App() {
         link.click()
       } catch (err) {
         console.error(err)
-        setExportError('No se pudo exportar. Prueba “Pantalla” o una resolución menor.')
+        setExportError('Export failed. Try “Screen” or a lower resolution.')
       } finally {
         setExporting(false)
       }
@@ -143,12 +166,24 @@ export default function App() {
             mockit
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setUiTheme(uiTheme === 'dark' ? 'light' : 'dark')}
-          className="flex cursor-pointer items-center gap-2.5 border-0 bg-transparent p-0"
-          aria-label={uiTheme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'}
-        >
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setSidePanelOpen((o) => !o)}
+            aria-pressed={sidePanelOpen}
+            aria-label={sidePanelOpen ? 'Hide options panel' : 'Show options panel'}
+            title={sidePanelOpen ? 'Hide panel — [ key' : 'Show panel — [ key'}
+            className="flex cursor-pointer rounded-lg border-0 bg-transparent p-2 transition hover:bg-[color-mix(in_srgb,var(--mockit-text)_8%,transparent)]"
+            style={{ color: 'var(--mockit-text-muted)' }}
+          >
+            <PanelSidebarGlyph className="h-5 w-5 shrink-0" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setUiTheme(uiTheme === 'dark' ? 'light' : 'dark')}
+            className="flex cursor-pointer items-center gap-2.5 border-0 bg-transparent p-0"
+            aria-label={uiTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          >
           <span className="mockit-toggle" data-on={uiTheme === 'light'}>
             <span className="mockit-toggle-thumb" />
           </span>
@@ -156,25 +191,38 @@ export default function App() {
             {uiTheme === 'dark' ? 'light' : 'dark'}
           </span>
         </button>
+        </div>
       </header>
 
       <div className="relative min-h-0 flex-1">
         <Scene />
-        <p
-          className="pointer-events-none absolute bottom-4 left-5 select-none font-script text-[1.15rem] md:text-[1.25rem]"
-          style={{ color: 'var(--mockit-script)' }}
-        >
-          arrastra: órbita · rueda: zoom · H: modo desplazar XY (mano: arrastra con clic principal) · H otra vez: salir
-        </p>
 
         <aside
-          className="absolute top-1/2 right-4 z-10 w-[min(100%-1.5rem,300px)] max-h-[calc(100%-1.5rem)] -translate-y-1/2 overflow-y-auto rounded-2xl border p-5 shadow-xl md:right-6 md:w-[min(100%-3rem,320px)]"
+          className={`absolute top-1/2 right-4 z-10 w-[min(100%-1.5rem,300px)] max-h-[calc(100%-1.5rem)] -translate-y-1/2 overflow-y-auto rounded-2xl border p-5 shadow-xl transition-[transform,opacity] duration-300 ease-out md:right-6 md:w-[min(100%-3rem,320px)] ${
+            sidePanelOpen
+              ? 'translate-x-0 opacity-100'
+              : 'pointer-events-none translate-x-[calc(100%+2rem)] opacity-0'
+          }`}
           style={{
             background: 'var(--mockit-panel)',
             borderColor: 'var(--mockit-panel-border)',
             boxShadow: 'var(--mockit-shadow)',
           }}
+          aria-hidden={!sidePanelOpen}
         >
+          <div className="mb-4 flex justify-end border-b pb-3" style={{ borderColor: 'var(--mockit-panel-border)' }}>
+            <button
+              type="button"
+              onClick={() => setSidePanelOpen(false)}
+              className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs opacity-80 transition hover:opacity-100"
+              style={{ color: 'var(--mockit-text-muted)' }}
+              aria-label="Hide options panel"
+              title="Hide panel — [ key"
+            >
+              <span>Hide</span>
+              <ChevronRightGlyph className="h-4 w-4 shrink-0" aria-hidden />
+            </button>
+          </div>
           <div className="flex flex-col gap-5">
             <button
               type="button"
@@ -211,6 +259,31 @@ export default function App() {
               <p className="text-xs leading-relaxed text-amber-600 dark:text-amber-400/90">{screenLoadError}</p>
             )}
 
+            <Field label="Device">
+              <div className="flex flex-wrap gap-1.5">
+                {DEVICE_OPTIONS.map(({ id, label }) => {
+                  const on = deviceKind === id
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => {
+                        setDeviceKind(id)
+                        resetDeviceRotation()
+                      }}
+                      className={`rounded-lg border px-3 py-2 text-xs transition ${
+                        on
+                          ? 'border-[var(--mockit-accent-bright)] bg-[var(--mockit-accent)]/15 text-[var(--mockit-text)]'
+                          : 'border-[color-mix(in_srgb,var(--mockit-text)_18%,transparent)] hover:border-[var(--mockit-accent)]/50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </Field>
+
             <Field label="Device color">
               <ColorRow value={deviceColor} onChange={setDeviceColor} swatches={[...DEVICE_SWATCHES]} />
             </Field>
@@ -238,7 +311,7 @@ export default function App() {
 
             <Field label="Camera roll">
               <p className="mb-2 font-script text-[0.95rem] leading-snug opacity-80" style={{ color: 'var(--mockit-script)' }}>
-                Gira la vista alrededor del eje de la cámara. Combina con arrastrar la escena.
+                Roll the view around the camera axis. Works with dragging the scene.
               </p>
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {(
@@ -279,6 +352,58 @@ export default function App() {
               </label>
             </Field>
 
+            <Field label="Device rotation">
+              <p className="mb-2 font-script text-[0.95rem] leading-snug opacity-80" style={{ color: 'var(--mockit-script)' }}>
+                Euler XYZ in degrees: tilt and turn the device in space (separate from camera roll).
+              </p>
+              {(
+                [
+                  { axis: 0 as const, title: 'X axis', hint: 'front ↔ back' },
+                  { axis: 1 as const, title: 'Y axis', hint: 'turntable' },
+                  { axis: 2 as const, title: 'Z axis', hint: 'side tilt' },
+                ] as const
+              ).map(({ axis, title, hint }) => {
+                const rad = deviceRotation[axis]
+                const deg = Math.round((rad * 180) / Math.PI)
+                return (
+                  <label
+                    key={axis}
+                    className="mb-3 flex flex-col gap-1 text-xs last:mb-0"
+                    style={{ color: 'var(--mockit-text-muted)' }}
+                  >
+                    <span>
+                      <span className="font-medium" style={{ color: 'var(--mockit-text)' }}>
+                        {title}
+                      </span>
+                      <span className="opacity-80"> — {hint}</span>
+                    </span>
+                    <span className="flex items-center gap-3">
+                      <span className="w-12 shrink-0 tabular-nums">{deg}°</span>
+                      <input
+                        type="range"
+                        min={-180}
+                        max={180}
+                        step={1}
+                        value={deg}
+                        onChange={(e) =>
+                          setDeviceRotationAxis(axis, (Number(e.target.value) * Math.PI) / 180)
+                        }
+                        className="min-w-0 flex-1 accent-[var(--mockit-accent-bright)]"
+                      />
+                    </span>
+                  </label>
+                )
+              })}
+              <button
+                type="button"
+                onClick={resetDeviceRotation}
+                className="mt-2 rounded-lg border px-2.5 py-1 text-xs transition border-[color-mix(in_srgb,var(--mockit-text)_18%,transparent)] hover:border-[var(--mockit-accent)]/50"
+                style={{ color: 'var(--mockit-text-muted)' }}
+              >
+                Reset XYZ
+              </button>
+            </Field>
+
             <div className="pt-1">
               <p
                 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em]"
@@ -309,7 +434,7 @@ export default function App() {
                 })}
               </div>
               <p className="mb-3 text-[11px] leading-snug opacity-80" style={{ color: 'var(--mockit-text-muted)' }}>
-                {EXPORT_PRESETS.find((p) => p.id === exportPreset)?.hint}. Misma composición que el visor; PNG sin pérdida.
+                {EXPORT_PRESETS.find((p) => p.id === exportPreset)?.hint}. Same framing as the viewport; lossless PNG.
               </p>
               <button
                 type="button"
@@ -344,6 +469,32 @@ function PhoneGlyph({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
       <rect x="6.5" y="3" width="11" height="18" rx="2.2" stroke="currentColor" strokeWidth="1.35" />
       <circle cx="12" cy="17.25" r="0.55" fill="currentColor" />
+    </svg>
+  )
+}
+
+function PanelSidebarGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+    </svg>
+  )
+}
+
+function ChevronRightGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M9 18l6-6-6-6" />
     </svg>
   )
 }

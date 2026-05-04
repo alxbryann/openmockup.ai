@@ -1,13 +1,17 @@
 import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { RoundedBox } from '@react-three/drei'
-import { invalidate, useThree } from '@react-three/fiber'
 import { useStore } from './store'
 import {
   frameColorSaturation,
   frameMaterialLuminance,
   getDeviceFrameSurfaceMaps,
 } from './deviceFrameTextures'
+import {
+  roundedHolePath,
+  roundedRectShape,
+  ScreenshotPlane,
+} from './ScreenshotPlane'
 
 type FramePhysicalProps = {
   color: string
@@ -81,10 +85,8 @@ const CORNER = 1.0
 // Screen visible area (texture plane matches bezel hole rounding)
 const SCREEN_W = 6.3
 const SCREEN_H = 13.5
-/** Inner opening of the bezel mask — must match `PhoneScreenPlane` rounding. */
+/** Inner opening of the bezel mask — must match `ScreenshotPlane` rounding. */
 const SCREEN_OPENING_CORNER_R = 0.35
-/** Inset of the lit screen mesh vs opening (per side); keeps pixels off the black ring. */
-const SCREEN_PLANE_INSET = 0.08
 
 /** Front cap of RoundedBox (ExtrudeGeometry + bevel) sits near z = D/2; keep layers separated or depth buffer flickers (checkerboard). */
 const BODY_FRONT_Z = D / 2
@@ -93,173 +95,6 @@ const SCREEN_Z = BODY_FRONT_Z + 0.024
 const SCREEN_PLATFORM_DEPTH = 0.07
 const SCREEN_PLATFORM_CENTER_Z = SCREEN_Z - 0.01 - SCREEN_PLATFORM_DEPTH / 2
 const BEZEL_Z = BODY_FRONT_Z + 0.03
-
-function roundedRectShape(w: number, h: number, r: number): THREE.Shape {
-  const s = new THREE.Shape()
-  const x = -w / 2,
-    y = -h / 2
-  s.moveTo(x + r, y)
-  s.lineTo(x + w - r, y)
-  s.quadraticCurveTo(x + w, y, x + w, y + r)
-  s.lineTo(x + w, y + h - r)
-  s.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
-  s.lineTo(x + r, y + h)
-  s.quadraticCurveTo(x, y + h, x, y + h - r)
-  s.lineTo(x, y + r)
-  s.quadraticCurveTo(x, y, x + r, y)
-  return s
-}
-
-/**
- * `ShapeGeometry` in three@0.184 sets `uv` to raw vertex (x,y) — not [0,1]. Without this,
- * textures only sample a ~1×1 patch at the center (clamp) and look like a tiny thumbnail.
- */
-function applyBoundingBoxUVs(geom: THREE.BufferGeometry, width: number, height: number) {
-  const pos = geom.getAttribute('position')
-  const uv = geom.getAttribute('uv')
-  if (!pos || !uv) return
-  const pa = pos.array as Float32Array
-  const uva = uv.array as Float32Array
-  const hw = width / 2
-  const hh = height / 2
-  for (let i = 0; i < pa.length; i += 3) {
-    const vx = pa[i]
-    const vy = pa[i + 1]
-    const j = (i / 3) * 2
-    uva[j] = (vx + hw) / width
-    uva[j + 1] = (vy + hh) / height
-  }
-  uv.needsUpdate = true
-}
-
-function roundedHolePath(w: number, h: number, r: number): THREE.Path {
-  const path = new THREE.Path()
-  const x = -w / 2,
-    y = -h / 2
-  path.moveTo(x + r, y)
-  path.quadraticCurveTo(x, y, x, y + r)
-  path.lineTo(x, y + h - r)
-  path.quadraticCurveTo(x, y + h, x + r, y + h)
-  path.lineTo(x + w - r, y + h)
-  path.quadraticCurveTo(x + w, y + h, x + w, y + h - r)
-  path.lineTo(x + w, y + r)
-  path.quadraticCurveTo(x + w, y, x + w - r, y)
-  path.lineTo(x + r, y)
-  return path
-}
-
-/** R3F can reset `map` on reconciler passes; keep one THREE material and assign `map` imperatively. */
-function PhoneScreenPlane({ screenshot }: { screenshot: string | null }) {
-  const mat = useMemo(
-    () =>
-      new THREE.MeshBasicMaterial({
-        color: new THREE.Color(0x050505),
-        toneMapped: false,
-        depthWrite: true,
-        polygonOffset: true,
-        polygonOffsetFactor: -4,
-        polygonOffsetUnits: -4,
-      }),
-    [],
-  )
-  const gl = useThree((s) => s.gl)
-  const setScreenLoadError = useStore((s) => s.setScreenLoadError)
-
-  useEffect(() => {
-    /* THREE.MeshBasicMaterial is mutated via .map / .color (not React state). */
-    /* eslint-disable react-hooks/immutability */
-    if (!screenshot) {
-      mat.map?.dispose()
-      mat.map = null
-      mat.color.set(0x050505)
-      mat.needsUpdate = true
-      return
-    }
-
-    let cancelled = false
-    queueMicrotask(() => setScreenLoadError(null))
-
-    const loader = new THREE.TextureLoader()
-    loader.load(
-      screenshot,
-      (tex) => {
-        if (cancelled) {
-          tex.dispose()
-          return
-        }
-        tex.colorSpace = THREE.SRGBColorSpace
-        tex.wrapS = THREE.ClampToEdgeWrapping
-        tex.wrapT = THREE.ClampToEdgeWrapping
-        tex.minFilter = THREE.LinearMipmapLinearFilter
-        tex.magFilter = THREE.LinearFilter
-        tex.generateMipmaps = true
-        tex.anisotropy = Math.min(4, gl.capabilities.getMaxAnisotropy())
-        tex.needsUpdate = true
-        mat.map?.dispose()
-        mat.map = tex
-        mat.color.set(0xffffff)
-        mat.needsUpdate = true
-        invalidate()
-        setScreenLoadError(null)
-      },
-      undefined,
-      () => {
-        if (cancelled) return
-        mat.map?.dispose()
-        mat.map = null
-        mat.color.set(0x050505)
-        mat.needsUpdate = true
-        setScreenLoadError(
-          'No se pudo mostrar la imagen en 3D. Prueba JPEG o PNG, o exporta la captura sin HEIC.',
-        )
-      },
-    )
-
-    return () => {
-      cancelled = true
-      mat.map?.dispose()
-      mat.map = null
-      mat.color.set(0x050505)
-      mat.needsUpdate = true
-    }
-    /* eslint-enable react-hooks/immutability */
-  }, [screenshot, gl, mat, setScreenLoadError])
-
-  useEffect(
-    () => () => {
-      mat.map?.dispose()
-      mat.dispose()
-    },
-    [mat],
-  )
-
-  const pw = SCREEN_W - SCREEN_PLANE_INSET * 2
-  const ph = SCREEN_H - SCREEN_PLANE_INSET * 2
-  const cornerR = Math.max(
-    0.06,
-    SCREEN_OPENING_CORNER_R - SCREEN_PLANE_INSET,
-  )
-
-  const screenGeom = useMemo(() => {
-    const shape = roundedRectShape(pw, ph, cornerR)
-    const g = new THREE.ShapeGeometry(shape, 64)
-    applyBoundingBoxUVs(g, pw, ph)
-    return g
-  }, [pw, ph, cornerR])
-
-  useEffect(
-    () => () => {
-      screenGeom.dispose()
-    },
-    [screenGeom],
-  )
-
-  return (
-    <mesh position={[0, 0, SCREEN_Z]} geometry={screenGeom}>
-      <primitive object={mat} attach="material" />
-    </mesh>
-  )
-}
 
 /** Rounded “glass” slab under the screenshot so corners read as physical display stack, not a square bitmap on flat metal. */
 function ScreenPlatform() {
@@ -558,7 +393,7 @@ function BottomDetails() {
 }
 
 export function Phone() {
-  const { screenshot, deviceColor } = useStore()
+  const { screenshot, deviceColor, deviceRotation } = useStore()
   const frameMat = useFramePhysicalMaterial(deviceColor)
 
   // Bezel: outer rounded shape with inner hole (screen cutout)
@@ -571,7 +406,7 @@ export function Phone() {
   }, [])
 
   return (
-    <group>
+    <group rotation={deviceRotation}>
       {/* Metal frame body */}
       <RoundedBox
         args={[W, H, D]}
@@ -591,7 +426,13 @@ export function Phone() {
       <ScreenPlatform />
 
       {/* Screen image (just above body front, behind bezel) */}
-      <PhoneScreenPlane screenshot={screenshot} />
+      <ScreenshotPlane
+        screenshot={screenshot}
+        screenW={SCREEN_W}
+        screenH={SCREEN_H}
+        openingCornerR={SCREEN_OPENING_CORNER_R}
+        z={SCREEN_Z}
+      />
 
       {/* Bezel ring with hole — matte black so it doesn't mirror the screen */}
       <mesh position={[0, 0, BEZEL_Z]} geometry={bezelGeom}>

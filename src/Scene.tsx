@@ -1,5 +1,6 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei'
+import { MacBook } from './MacBook'
 import { Phone } from './Phone'
 import { useStore } from './store'
 import { captureSceneToPngDataUrl } from './highResCapture'
@@ -104,7 +105,8 @@ function SceneCaptureRegistration() {
 }
 
 export const Scene = forwardRef<HTMLCanvasElement>(function Scene(_props, ref) {
-  const { bgColor } = useStore()
+  const bgColor = useStore((s) => s.bgColor)
+  const deviceKind = useStore((s) => s.deviceKind)
 
   return (
     <Canvas
@@ -133,12 +135,12 @@ export const Scene = forwardRef<HTMLCanvasElement>(function Scene(_props, ref) {
       <directionalLight position={[2, -4, -14]} intensity={0.42} color="#ffffff" />
       <pointLight position={[0, 7, 6]} intensity={0.22} color="#fff5eb" />
 
-      <Phone />
+      {deviceKind === 'phone' ? <Phone /> : <MacBook />}
 
       <ContactShadows
         position={[0, -9, 0]}
         opacity={0.55}
-        scale={22}
+        scale={deviceKind === 'mac' ? 34 : 22}
         blur={2.8}
         far={12}
       />

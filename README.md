@@ -60,7 +60,7 @@ npm run preview  # sirve el build local
 
 ## Licencia y estado
 
-Proyecto privado / en evolución (**alpha**). API y modelo pueden cambiar.
+Proyecto de **código abierto**: cualquiera puede usar el código, abrir issues y enviar pull requests. El estado es **alpha**; la API y el modelo pueden cambiar.
 
 ---
 

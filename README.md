@@ -58,7 +58,18 @@ npm run preview  # sirve el build local
 
 ---
 
-## Créditos del modelo 3D (iPhone)
+## Créditos de modelos 3D
+
+Los términos completos del código (MIT) y las atribuciones obligatorias de activos CC están en [`LICENSE`](LICENSE).
+
+### MacBook (Sketchfab)
+
+Modelo **«MacBook»** por **M I H** ([@imamulhasan](https://sketchfab.com/imamulhasan)) en Sketchfab:  
+[https://sketchfab.com/3d-models/macbook-289c013e6c0541f498d4c6b40045db88](https://sketchfab.com/3d-models/macbook-289c013e6c0541f498d4c6b40045db88)  
+Licencia: [**CC Attribution (CC BY)**](https://creativecommons.org/licenses/by/4.0/).  
+El texto legal y cuándo aplica la atribución están en [`LICENSE`](LICENSE).
+
+### iPhone 17 Pro (GLB en el repo)
 
 El archivo `public/models/iphone17pro.glb` corresponde al dispositivo **iPhone 17 Pro** incluido en el repositorio abierto [jessekorzan/themockitship](https://github.com/jessekorzan/themockitship) (*Device Mockup Kit* / mockitship).
 
@@ -66,13 +77,15 @@ El modelo 3D original está acreditado allí como:
 
 - **«Iphone 17 pro»** por [Ibrahim.Bhl](https://skfb.ly/pzYOR) en Sketchfab, bajo licencia [**CC BY 4.0**](https://creativecommons.org/licenses/by/4.0/).
 
-Si redistribuyes capturas o builds que incluyan el GLB, respeta los términos de esa licencia (atribución al autor del modelo).
+Si redistribuyes capturas o builds que incluyan estos activos, respeta las licencias (en particular la atribución a los autores en Sketchfab).
 
 ---
 
 ## Licencia y estado
 
-Proyecto de **código abierto**: cualquiera puede usar el código, abrir issues y enviar pull requests. El estado es **alpha**; la API y el modelo pueden cambiar.
+Código del proyecto: **MIT** — ver [`LICENSE`](LICENSE).
+
+Proyecto de **código abierto**: cualquiera puede usar el código, abrir issues y enviar pull requests. El estado es **alpha**; la API y los modelos pueden cambiar.
 
 ---
 

@@ -1,0 +1,57 @@
+MIT License
+
+Copyright (c) Mockit contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Third-party 3D models — attribution required by their licenses
+
+Keep the following credits visible (e.g. in README, LICENSE, or app credits)
+where required by Creative Commons:
+
+- For the **bundled** iPhone GLB in this repository, attribution applies when you
+  redistribute the project or ship builds that include that file.
+- For the **Sketchfab MacBook** model linked below, attribution applies when you
+  use, redistribute, or ship derivatives of that model (see item 1).
+
+1. MacBook (Sketchfab)
+
+   If you use, redistribute, or ship derivatives of the following Sketchfab
+   model, you must comply with its Creative Commons Attribution license and
+   keep this credit:
+
+   Title: MacBook  
+   Author: M I H (@imamulhasan)  
+   URL: https://sketchfab.com/3d-models/macbook-289c013e6c0541f498d4c6b40045db88  
+   License: Creative Commons Attribution (CC BY) — see  
+   https://creativecommons.org/licenses/by/4.0/
+
+2. iPhone 17 Pro (bundled GLB `public/models/iphone17pro.glb`)
+
+   The GLB is distributed as part of the open Device Mockup Kit project:  
+   https://github.com/jessekorzan/themockitship  
+
+   Original Sketchfab model credited there:  
+   Title: Iphone 17 pro  
+   Author: Ibrahim.Bhl  
+   URL: https://skfb.ly/pzYOR  
+   License: Creative Commons Attribution 4.0 International (CC BY 4.0) — see  
+   https://creativecommons.org/licenses/by/4.0/

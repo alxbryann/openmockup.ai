@@ -66,6 +66,12 @@ export type ScreenshotPlaneProps = {
   openingCornerR: number
   /** Per-side inset of the lit mesh vs opening. */
   planeInset?: number
+  /**
+   * Minimum allowed corner radius after inset subtraction.
+   * Defaults to 0.02 (scene units). Pass 0 when screenW/screenH are in geometry
+   * units (e.g. MacBook GLTF overlay) so tiny proportional radii are respected.
+   */
+  minCornerR?: number
   /** Z offset from parent (lid local space: +Z is toward viewer when lid faces +Z). */
   z?: number
   /** When true, UVs are flipped so the texture reads upright on laptop lids that use the opposite winding. */
@@ -79,6 +85,7 @@ export function ScreenshotPlane({
   screenH,
   openingCornerR,
   planeInset = 0.08,
+  minCornerR = 0.02,
   z = 0,
   flipTexture180 = false,
 }: ScreenshotPlaneProps) {
@@ -167,7 +174,7 @@ export function ScreenshotPlane({
   const pw = Math.max(0.02, screenW - planeInset * 2)
   const ph = Math.max(0.02, screenH - planeInset * 2)
   const cornerR = Math.min(
-    Math.max(0.02, openingCornerR - planeInset),
+    Math.max(minCornerR, openingCornerR - planeInset),
     Math.min(pw, ph) * 0.48,
   )
 

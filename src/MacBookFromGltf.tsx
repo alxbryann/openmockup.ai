@@ -56,7 +56,8 @@ function computeLidScreenLayout(mesh: THREE.Mesh): LidScreenLayout | null {
   const box = geom.boundingBox
   if (!box) return null
 
-  const ycut = box.min.y + (box.max.y - box.min.y) * 0.48
+  // 15% threshold: screen starts near Y=4cm on this model; 48% would cut off the bottom half
+  const ycut = box.min.y + (box.max.y - box.min.y) * 0.15
   let minx = Infinity,
     miny = Infinity,
     minz = Infinity,
@@ -167,7 +168,17 @@ export function MacBookFromGltf() {
     mesh.updateMatrixWorld(true)
     wrapper.updateMatrixWorld(true)
 
-    _c.set(layout.cx, layout.cy, layout.cz + 0.18)
+    /**
+     * Screen overlay tuning (mesh-local geometry units ≈ cm on this GLB):
+     * - EXTEND_DOWN: grow past the detected lid bottom into the chin / curved bezel.
+     * - TRIM_TOP: shrink coverage at the top so the texture sits slightly lower.
+     * - TRIM_SIDE: inset left/right so the plane does not spill past the bezel.
+     * Center moves by −(EXTEND_DOWN + TRIM_TOP)/2 so bottom extends more than top trims.
+     */
+    const EXTEND_DOWN = 3.05
+    const TRIM_TOP = 0.38
+    const TRIM_SIDE = 0.32
+    _c.set(layout.cx, layout.cy - (EXTEND_DOWN + TRIM_TOP) / 2, layout.cz + 0.18)
     mesh.localToWorld(_c)
     wrapper.worldToLocal(_c)
     overlay.position.copy(_c)
@@ -176,13 +187,27 @@ export function MacBookFromGltf() {
     mesh.getWorldQuaternion(_qMesh)
     overlay.quaternion.copy(_qWrap.clone().invert().multiply(_qMesh))
 
-    /** Plane size in wrapper-local scene units: same scale as laptop (`TARGET_H` = full body height). */
-    mesh.geometry.computeBoundingBox()
-    const bb = mesh.geometry.boundingBox
-    const fullH = bb ? Math.max(bb.max.y - bb.min.y, 1e-4) : 1
-    const sw = THREE.MathUtils.clamp(TARGET_H * (layout.w / fullH) * 0.98, 5, 42)
-    const sh = THREE.MathUtils.clamp(TARGET_H * (layout.h / fullH) * 0.98, 3, 28)
-    const r = Math.min(0.14 * Math.min(sw, sh), 0.24 * Math.min(sw, sh))
+    /**
+     * The overlay group is a child of `wrapper` which has a large scale factor (~66×).
+     * Screen plane dimensions must be in wrapper-local units (geometry × GLTF node scale),
+     * NOT in scene/world units — otherwise the wrapper scale multiplies them again.
+     *
+     * nodeScale = mesh world scale ÷ wrapper scale = pure GLTF-node scale (e.g. 0.01 for cm→m).
+     * sw/sh in wrapper-local units × wrapperS = correct world-space screen size.
+     */
+    const meshWS = new THREE.Vector3()
+    mesh.getWorldScale(meshWS)
+    const wrapperS = Math.max(wrapper.scale.x, 1e-4)
+    const nodeScaleX = meshWS.x / wrapperS
+    const nodeScaleY = meshWS.y / wrapperS
+
+    // Width: trim both sides in geometry space, then convert to wrapper-local units.
+    const sw = Math.max(1e-4, layout.w - 2 * TRIM_SIDE) * nodeScaleX
+    const sh = (layout.h + EXTEND_DOWN - TRIM_TOP) * nodeScaleY
+    // Empirically: the GLB lid's rounded corner extends ~1cm in geometry units,
+    // i.e. ~5.7% of the shorter dimension (1cm / 17.99cm). Matches the visible
+    // lid edge curvature so the overlay corner aligns with the bezel curve.
+    const r = 0.057 * Math.min(sw, sh)
 
     setScreenSpec({ w: sw, h: sh, r })
   }, [root, layout])
@@ -211,8 +236,9 @@ export function MacBookFromGltf() {
                 screenW={screenSpec.w}
                 screenH={screenSpec.h}
                 openingCornerR={screenSpec.r}
+                planeInset={0}
+                minCornerR={0}
                 z={0}
-                flipTexture180
               />
             ) : null}
           </group>

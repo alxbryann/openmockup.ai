@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { RoundedBox } from '@react-three/drei'
-import { useStore } from './store'
 import {
   frameColorSaturation,
   frameMaterialLuminance,
@@ -186,8 +185,7 @@ const logoMatProps = {
   envMapIntensity: 1.55,
 } as const
 
-export function MacBook() {
-  const { screenshot, deviceColor } = useStore()
+export function MacBook({ screenshot, deviceColor }: { screenshot: string | null; deviceColor: string }) {
   const frameMat = useFramePhysicalMaterial(deviceColor)
   const wedge = useMacWedge()
   const { apple: appleGeom, leaf: leafGeom } = useAppleLogoGeometries()

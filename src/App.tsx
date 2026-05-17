@@ -22,45 +22,46 @@ const EXPORT_PRESETS: { id: ExportPreset; label: string; hint: string }[] = [
   { id: 7680, label: '8K', hint: 'long edge 7680 px' },
 ]
 
-/** Acabados iPhone Pro (titanio) y aluminio — hex cercanos a referencias de producto Apple. */
 const DEVICE_SWATCHES = [
-  '#1d1d1f', // Black Titanium
-  '#ebebed', // White Titanium
-  '#bfbdb8', // Natural Titanium
-  '#404a57', // Blue Titanium (Pro)
-  '#c9b8a2', // Desert Titanium
-  '#e2e3e5', // Silver / Starlight (aluminio)
+  '#1d1d1f',
+  '#ebebed',
+  '#bfbdb8',
+  '#404a57',
+  '#c9b8a2',
+  '#e2e3e5',
 ] as const
 const BG_SWATCHES = ['#0a0a0a', '#ffffff', '#0f172a', '#14532d', '#5c4033', '#f4f4f5'] as const
 
 export default function App() {
   const fileRef = useRef<HTMLInputElement>(null)
   const {
-    screenshot,
-    screenLoadError,
-    deviceKind,
-    deviceColor,
+    devices,
+    activeDeviceId,
     bgColor,
     autoRotate,
     uiTheme,
     cameraRoll,
     orbitDistance,
-    setScreenshot,
-    setScreenLoadError,
-    setDeviceKind,
-    setDeviceColor,
+    addDevice,
+    removeDevice,
+    setActiveDeviceId,
+    updateDevice,
+    setDeviceRotationAxis,
+    resetDeviceRotation,
+    deviceDragMode,
+    setDeviceDragMode,
     setBgColor,
     setAutoRotate,
     setUiTheme,
     setCameraRoll,
-    deviceRotation,
-    setDeviceRotationAxis,
-    resetDeviceRotation,
     setCameraPanFree,
   } = useStore()
+
+  const activeDevice = devices.find((d) => d.id === activeDeviceId) ?? devices[0]
+  const { screenshot, screenLoadError, deviceKind, deviceColor, deviceRotation } = activeDevice
+
   const [exporting, setExporting] = useState(false)
   const [exportPreset, setExportPreset] = useState<ExportPreset>(3840)
-  /** PNG export: omit solid scene background (alpha) for compositing */
   const [exportTransparentBg, setExportTransparentBg] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const [sidePanelOpen, setSidePanelOpen] = useState(true)
@@ -103,7 +104,7 @@ export default function App() {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
-    setScreenLoadError(null)
+    updateDevice(activeDevice.id, { screenLoadError: null })
 
     const isHeic =
       /image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name)
@@ -122,14 +123,14 @@ export default function App() {
       } else {
         dataUrl = await readFileAsDataUrl(file)
       }
-      setScreenshot(dataUrl)
+      updateDevice(activeDevice.id, { screenshot: dataUrl })
     } catch (err) {
       console.error(err)
-      setScreenLoadError(
-        isHeic
+      updateDevice(activeDevice.id, {
+        screenLoadError: isHeic
           ? 'Could not convert HEIC. Export the screenshot as JPEG or PNG and try again.'
           : 'Could not read the file.',
-      )
+      })
     }
   }
 
@@ -173,7 +174,7 @@ export default function App() {
         link.click()
       } catch (err) {
         console.error(err)
-        setExportError('Export failed. Try “Screen” or a lower resolution.')
+        setExportError('Export failed. Try "Screen" or a lower resolution.')
       } finally {
         setExporting(false)
       }
@@ -213,13 +214,13 @@ export default function App() {
             className="flex cursor-pointer items-center gap-2.5 border-0 bg-transparent p-0"
             aria-label={uiTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
           >
-          <span className="mockit-toggle" data-on={uiTheme === 'light'}>
-            <span className="mockit-toggle-thumb" />
-          </span>
-          <span className="font-script text-[1.35rem] leading-none" style={{ color: 'var(--mockit-script)' }}>
-            {uiTheme === 'dark' ? 'light' : 'dark'}
-          </span>
-        </button>
+            <span className="mockit-toggle" data-on={uiTheme === 'light'}>
+              <span className="mockit-toggle-thumb" />
+            </span>
+            <span className="font-script text-[1.35rem] leading-none" style={{ color: 'var(--mockit-script)' }}>
+              {uiTheme === 'dark' ? 'light' : 'dark'}
+            </span>
+          </button>
         </div>
       </header>
 
@@ -235,7 +236,6 @@ export default function App() {
           }}
           role="status"
           aria-live="polite"
-          aria-label={`Zoom ${zoomLabel}, rango permitido aproximadamente ${zoomRangeLo} a ${zoomRangeHi} veces.`}
         >
           <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--mockit-text-muted)' }}>
             Zoom
@@ -274,7 +274,82 @@ export default function App() {
               <ChevronRightGlyph className="h-4 w-4 shrink-0" aria-hidden />
             </button>
           </div>
+
           <div className="flex flex-col gap-5">
+
+            {/* Device selector */}
+            <Field label="Devices">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {devices.map((d, i) => {
+                  const isActive = d.id === activeDeviceId
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setActiveDeviceId(d.id)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs transition ${
+                        isActive
+                          ? 'border-[var(--mockit-accent-bright)] bg-[var(--mockit-accent)]/15 text-[var(--mockit-text)]'
+                          : 'border-[color-mix(in_srgb,var(--mockit-text)_18%,transparent)] hover:border-[var(--mockit-accent)]/50'
+                      }`}
+                      style={{ color: isActive ? undefined : 'var(--mockit-text-muted)' }}
+                    >
+                      {i + 1}
+                    </button>
+                  )
+                })}
+                <button
+                  type="button"
+                  onClick={() => addDevice('phone')}
+                  title="Add iPhone"
+                  className="rounded-lg border px-3 py-1.5 text-xs transition border-[color-mix(in_srgb,var(--mockit-text)_18%,transparent)] hover:border-[var(--mockit-accent)]/50"
+                  style={{ color: 'var(--mockit-text-muted)' }}
+                >
+                  + Phone
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addDevice('mac')}
+                  title="Add MacBook"
+                  className="rounded-lg border px-3 py-1.5 text-xs transition border-[color-mix(in_srgb,var(--mockit-text)_18%,transparent)] hover:border-[var(--mockit-accent)]/50"
+                  style={{ color: 'var(--mockit-text-muted)' }}
+                >
+                  + Mac
+                </button>
+              </div>
+              {/* Rotate / Move toggle */}
+              <div className="mt-2 flex items-center gap-1.5">
+                {(['rotate', 'move'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setDeviceDragMode(mode)}
+                    className={`flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs transition ${
+                      deviceDragMode === mode
+                        ? 'border-[var(--mockit-accent-bright)] bg-[var(--mockit-accent)]/15 text-[var(--mockit-text)]'
+                        : 'border-[color-mix(in_srgb,var(--mockit-text)_18%,transparent)] hover:border-[var(--mockit-accent)]/50'
+                    }`}
+                    style={{ color: deviceDragMode === mode ? undefined : 'var(--mockit-text-muted)' }}
+                  >
+                    {mode === 'rotate' ? <RotateGlyph className="h-3 w-3 shrink-0" /> : <MoveGlyph className="h-3 w-3 shrink-0" />}
+                    {mode === 'rotate' ? 'Rotate' : 'Move'}
+                  </button>
+                ))}
+              </div>
+
+              {devices.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeDevice(activeDevice.id)}
+                  className="mt-1.5 text-[11px] opacity-60 hover:opacity-100 transition border-0 bg-transparent p-0 cursor-pointer"
+                  style={{ color: 'var(--mockit-text-muted)' }}
+                >
+                  Remove device {devices.findIndex((d) => d.id === activeDeviceId) + 1}
+                </button>
+              )}
+            </Field>
+
+            {/* Screenshot for active device */}
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
@@ -296,10 +371,7 @@ export default function App() {
             {screenshot && (
               <button
                 type="button"
-                onClick={() => {
-                  setScreenshot(null)
-                  setScreenLoadError(null)
-                }}
+                onClick={() => updateDevice(activeDevice.id, { screenshot: null, screenLoadError: null })}
                 className="font-script -mt-2 self-center text-base opacity-70 hover:opacity-100"
                 style={{ color: 'var(--mockit-script)' }}
               >
@@ -310,7 +382,7 @@ export default function App() {
               <p className="text-xs leading-relaxed text-amber-600 dark:text-amber-400/90">{screenLoadError}</p>
             )}
 
-            <Field label="Device">
+            <Field label="Device type">
               <div className="flex flex-wrap gap-1.5">
                 {DEVICE_OPTIONS.map(({ id, label }) => {
                   const on = deviceKind === id
@@ -319,8 +391,8 @@ export default function App() {
                       key={id}
                       type="button"
                       onClick={() => {
-                        setDeviceKind(id)
-                        resetDeviceRotation()
+                        updateDevice(activeDevice.id, { deviceKind: id })
+                        resetDeviceRotation(activeDevice.id)
                       }}
                       className={`rounded-lg border px-3 py-2 text-xs transition ${
                         on
@@ -336,8 +408,31 @@ export default function App() {
             </Field>
 
             <Field label="Device color">
-              <ColorRow value={deviceColor} onChange={setDeviceColor} swatches={[...DEVICE_SWATCHES]} />
+              <ColorRow
+                value={deviceColor}
+                onChange={(c) => updateDevice(activeDevice.id, { deviceColor: c })}
+                swatches={[...DEVICE_SWATCHES]}
+              />
             </Field>
+
+            {devices.length > 1 && (
+              <Field label="Position X">
+                <label className="flex items-center gap-3 text-xs" style={{ color: 'var(--mockit-text-muted)' }}>
+                  <span className="w-12 shrink-0 tabular-nums">
+                    {activeDevice.positionX > 0 ? '+' : ''}{Math.round(activeDevice.positionX)}
+                  </span>
+                  <input
+                    type="range"
+                    min={-40}
+                    max={40}
+                    step={0.5}
+                    value={activeDevice.positionX}
+                    onChange={(e) => updateDevice(activeDevice.id, { positionX: Number(e.target.value) })}
+                    className="min-w-0 flex-1 accent-[var(--mockit-accent-bright)]"
+                  />
+                </label>
+              </Field>
+            )}
 
             <Field label="Background">
               <ColorRow value={bgColor} onChange={setBgColor} swatches={[...BG_SWATCHES]} />
@@ -361,14 +456,13 @@ export default function App() {
                 </button>
               </div>
               <p className="text-[11px] leading-snug opacity-75" style={{ color: 'var(--mockit-text-muted)' }}>
-                Slowly spins the device (Y / turntable). The Y slider matches this motion.
+                Slowly spins all devices (Y / turntable).
               </p>
             </div>
 
             <Field label="Camera roll">
               <p className="mb-2 font-script text-[0.95rem] leading-snug opacity-80" style={{ color: 'var(--mockit-script)' }}>
-                Roll the view around the camera axis. Use right-drag (or two fingers on trackpad) to orbit, then roll
-                applies on top.
+                Roll the view around the camera axis. Right-drag orbits; roll applies on top.
               </p>
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {(
@@ -411,9 +505,7 @@ export default function App() {
 
             <Field label="Device rotation">
               <p className="mb-2 font-script text-[0.95rem] leading-snug opacity-80" style={{ color: 'var(--mockit-script)' }}>
-                Euler XYZ in degrees: tilt and turn the device in space (separate from camera roll). Left-drag on the
-                device or the background to adjust; hold Shift and drag for Z. Right-drag orbits the camera around the
-                scene.
+                Euler XYZ for device {devices.findIndex((d) => d.id === activeDeviceId) + 1}. Left-drag to adjust; Shift+drag for Z.
               </p>
               {(
                 [
@@ -445,7 +537,11 @@ export default function App() {
                         step={1}
                         value={deg}
                         onChange={(e) =>
-                          setDeviceRotationAxis(axis, (Number(e.target.value) * Math.PI) / 180)
+                          setDeviceRotationAxis(
+                            activeDevice.id,
+                            axis,
+                            (Number(e.target.value) * Math.PI) / 180,
+                          )
                         }
                         className="min-w-0 flex-1 accent-[var(--mockit-accent-bright)]"
                       />
@@ -455,7 +551,7 @@ export default function App() {
               })}
               <button
                 type="button"
-                onClick={resetDeviceRotation}
+                onClick={() => resetDeviceRotation(activeDevice.id)}
                 className="mt-2 rounded-lg border px-2.5 py-1 text-xs transition border-[color-mix(in_srgb,var(--mockit-text)_18%,transparent)] hover:border-[var(--mockit-accent)]/50"
                 style={{ color: 'var(--mockit-text-muted)' }}
               >
@@ -576,6 +672,28 @@ function ChevronRightGlyph({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M9 18l6-6-6-6" />
+    </svg>
+  )
+}
+
+function RotateGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21.5 2v6h-6" />
+      <path d="M21.34 15.57a10 10 0 1 1-.57-8.38" />
+    </svg>
+  )
+}
+
+function MoveGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="5 9 2 12 5 15" />
+      <polyline points="9 5 12 2 15 5" />
+      <polyline points="15 19 12 22 9 19" />
+      <polyline points="19 9 22 12 19 15" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <line x1="12" y1="2" x2="12" y2="22" />
     </svg>
   )
 }

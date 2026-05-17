@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { useStore } from './store'
 
 const MODEL_URL = '/models/iphone17pro.glb'
 
@@ -79,8 +78,7 @@ const BODY_MATS = new Set(['Material.002', 'Material.004', 'Rim_Buttons'])
 /** Match the procedural phone height in scene units so the GLTF fits the same camera/shadow rig. */
 const TARGET_H = 14.66
 
-export function PhoneFromGltf() {
-  const { screenshot, deviceColor } = useStore()
+export function PhoneFromGltf({ screenshot, deviceColor }: { screenshot: string | null; deviceColor: string }) {
   const { scene } = useGLTF(MODEL_URL)
   const wrapperRef = useRef<THREE.Group>(null)
 

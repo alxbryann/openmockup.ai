@@ -5,78 +5,126 @@ import { MacBook } from './MacBook'
 import { MacBookFromGltf } from './MacBookFromGltf'
 import { PhoneFromGltf } from './PhoneFromGltf'
 import { PhoneProcedural } from './PhoneProcedural'
-import { useStore } from './store'
+import { useStore, type DeviceInstance } from './store'
 import { captureSceneToPngDataUrl } from './highResCapture'
 import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { MOUSE, TOUCH } from 'three'
 import * as THREE from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 
-/** Pixels → radians; tuned to feel close to direct manipulation */
 const DEVICE_DRAG_SENS = 0.007
-/** Same convention as drei `OrbitControls` `autoRotateSpeed` — rad applied per `controls.update()` at ~60fps */
 const DEVICE_AUTO_ROTATE_SPEED = 1.2
+/** Camera FOV in degrees — must match the Canvas camera prop. */
+const CAMERA_FOV_DEG = 28
 
-/** Orbit dolly limits — keep in sync with `<OrbitControls minDistance/maxDistance />`. */
 export const ORBIT_MIN_DISTANCE = 18
 export const ORBIT_MAX_DISTANCE = 50
 
 /**
- * Zoom en la UI = (esta distancia ÷ distancia de órbita)× — ~2× al máximo acercamiento, ~0.7× al alejar.
+ * Zoom en la UI = (esta distancia ÷ distancia de órbita) — ~2× al máximo acercamiento, ~0.7× al alejar.
  */
 export const ORBIT_ZOOM_REF_DISTANCE = ORBIT_MIN_DISTANCE * 2
 
-/**
- * Clic izquierdo: no hace nada en OrbitControls (`-1`), para poder girar el dispositivo en todo el lienzo.
- * Clic derecho: órbita de la cámara.
- */
 const MOUSE_DEVICE_VIEW_MODE = {
   LEFT: -1,
   MIDDLE: MOUSE.DOLLY,
   RIGHT: MOUSE.ROTATE,
 } as { LEFT: number; MIDDLE: MOUSE; RIGHT: MOUSE }
 
-/**
- * Un dedo con enablePan=false no entra en modo cámara; el arrastre lo manejan el pick del dispositivo o el fondo.
- */
 const TOUCH_DEVICE_VIEW_MODE = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_PAN } as const
 
+function DeviceGroup({
+  device,
+  onPointerDown,
+}: {
+  device: DeviceInstance
+  onPointerDown: (e: ThreeEvent<PointerEvent>, deviceId: string) => void
+}) {
+  return (
+    <group
+      position={[device.positionX, device.positionY, 0]}
+      rotation={device.deviceRotation}
+      onPointerDown={(e) => onPointerDown(e, device.id)}
+    >
+      {device.deviceKind === 'phone' ? (
+        <Suspense
+          fallback={
+            <PhoneProcedural screenshot={device.screenshot} deviceColor={device.deviceColor} />
+          }
+        >
+          <PhoneFromGltf screenshot={device.screenshot} deviceColor={device.deviceColor} />
+        </Suspense>
+      ) : (
+        <Suspense
+          fallback={<MacBook screenshot={device.screenshot} deviceColor={device.deviceColor} />}
+        >
+          <MacBookFromGltf screenshot={device.screenshot} deviceColor={device.deviceColor} />
+        </Suspense>
+      )}
+    </group>
+  )
+}
+
 function DeviceScene({
-  children,
   orbitControlsRef,
 }: {
-  children: React.ReactNode
   orbitControlsRef: React.RefObject<OrbitControlsImpl | null>
 }) {
   const gl = useThree((s) => s.gl)
-  const cameraPanFree = useStore((s) => s.cameraPanFree)
-  const deviceRotation = useStore((s) => s.deviceRotation)
+  const size = useThree((s) => s.size)
+  const devices = useStore((s) => s.devices)
+  const setActiveDeviceId = useStore((s) => s.setActiveDeviceId)
   const setDeviceRotation = useStore((s) => s.setDeviceRotation)
+  const updateDevice = useStore((s) => s.updateDevice)
+  const tickAutoRotate = useStore((s) => s.tickAutoRotate)
   const autoRotate = useStore((s) => s.autoRotate)
+  const cameraPanFree = useStore((s) => s.cameraPanFree)
+  const deviceDragMode = useStore((s) => s.deviceDragMode)
+  const orbitDistance = useStore((s) => s.orbitDistance)
 
-  const dragActiveRef = useRef(false)
+  // Keep refs for use inside window event handlers (stable closure)
+  const dragDeviceIdRef = useRef<string | null>(null)
   const lastRef = useRef({ x: 0, y: 0 })
+  const dragModeRef = useRef(deviceDragMode)
+  const orbitDistanceRef = useRef(orbitDistance)
+  const sizeRef = useRef(size)
+  useEffect(() => { dragModeRef.current = deviceDragMode }, [deviceDragMode])
+  useEffect(() => { orbitDistanceRef.current = orbitDistance }, [orbitDistance])
+  useEffect(() => { sizeRef.current = size }, [size])
 
   useEffect(() => {
     function onMove(e: PointerEvent) {
-      if (!dragActiveRef.current) return
+      const did = dragDeviceIdRef.current
+      if (!did) return
       const dx = e.clientX - lastRef.current.x
       const dy = e.clientY - lastRef.current.y
       lastRef.current = { x: e.clientX, y: e.clientY }
-      const [rx, ry, rz] = useStore.getState().deviceRotation
-      if (e.shiftKey) {
-        setDeviceRotation([rx, ry, rz - dx * DEVICE_DRAG_SENS])
+      const device = useStore.getState().devices.find((d) => d.id === did)
+      if (!device) return
+
+      if (dragModeRef.current === 'move') {
+        // Pixel → world: at device plane (z=0), visible height = 2 * dist * tan(fov/2)
+        const visibleH = 2 * orbitDistanceRef.current * Math.tan((CAMERA_FOV_DEG / 2) * (Math.PI / 180))
+        const sens = visibleH / sizeRef.current.height
+        updateDevice(did, {
+          positionX: device.positionX + dx * sens,
+          positionY: device.positionY - dy * sens,
+        })
+      } else if (e.shiftKey) {
+        const [rx, ry, rz] = device.deviceRotation
+        setDeviceRotation(did, [rx, ry, rz - dx * DEVICE_DRAG_SENS])
       } else {
-        setDeviceRotation([rx + dy * DEVICE_DRAG_SENS, ry + dx * DEVICE_DRAG_SENS, rz])
+        const [rx, ry, rz] = device.deviceRotation
+        setDeviceRotation(did, [rx + dy * DEVICE_DRAG_SENS, ry + dx * DEVICE_DRAG_SENS, rz])
       }
     }
     function endDrag(e: PointerEvent) {
-      if (!dragActiveRef.current) return
-      dragActiveRef.current = false
+      if (!dragDeviceIdRef.current) return
+      dragDeviceIdRef.current = null
       try {
         gl.domElement.releasePointerCapture(e.pointerId)
       } catch {
-        /* releasePointerCapture throws if capture was already released */
+        /* already released */
       }
       const ctl = orbitControlsRef.current
       if (ctl) ctl.enabled = true
@@ -89,34 +137,39 @@ function DeviceScene({
       window.removeEventListener('pointerup', endDrag)
       window.removeEventListener('pointercancel', endDrag)
     }
-  }, [gl.domElement, orbitControlsRef, setDeviceRotation])
+  }, [gl.domElement, orbitControlsRef, setDeviceRotation, updateDevice])
 
-  /** Igual que OrbitControls: `2π/3600 * speed` por update (~1 frame). */
   useFrame(() => {
-    if (!autoRotate || cameraPanFree || dragActiveRef.current) return
+    if (!autoRotate || cameraPanFree || dragDeviceIdRef.current) return
     const step = ((2 * Math.PI) / 3600) * DEVICE_AUTO_ROTATE_SPEED
-    const [rx, ry, rz] = useStore.getState().deviceRotation
-    useStore.getState().setDeviceRotation([rx, ry + step, rz])
+    tickAutoRotate(step)
   })
 
-  function onPointerDown(e: ThreeEvent<PointerEvent>) {
+  function startDrag(e: ThreeEvent<PointerEvent>, deviceId: string) {
     if (cameraPanFree || e.button !== 0) return
     e.stopPropagation()
-    dragActiveRef.current = true
+    setActiveDeviceId(deviceId)
+    dragDeviceIdRef.current = deviceId
     lastRef.current = { x: e.clientX, y: e.clientY }
     const ctl = orbitControlsRef.current
     if (ctl) ctl.enabled = false
     try {
       gl.domElement.setPointerCapture(e.pointerId)
     } catch {
-      /* setPointerCapture can fail for invalid ids */
+      /* invalid pointer id */
     }
   }
 
   return (
     <>
       {!cameraPanFree ? (
-        <mesh position={[0, 0, -56]} onPointerDown={onPointerDown}>
+        <mesh
+          position={[0, 0, -56]}
+          onPointerDown={(e) => {
+            const aid = useStore.getState().activeDeviceId
+            startDrag(e, aid)
+          }}
+        >
           <planeGeometry args={[480, 480]} />
           <meshBasicMaterial
             transparent
@@ -126,9 +179,9 @@ function DeviceScene({
           />
         </mesh>
       ) : null}
-      <group rotation={deviceRotation} onPointerDown={onPointerDown}>
-        {children}
-      </group>
+      {devices.map((device) => (
+        <DeviceGroup key={device.id} device={device} onPointerDown={startDrag} />
+      ))}
     </>
   )
 }
@@ -136,7 +189,6 @@ function DeviceScene({
 const rollQuat = new THREE.Quaternion()
 const rollAxis = new THREE.Vector3(0, 0, -1)
 
-/** Pan con clic izquierdo; en modo normal el izquierdo es órbita. */
 const MOUSE_PAN_MODE = { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE } as const
 const TOUCH_PAN_MODE = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_PAN } as const
 
@@ -206,7 +258,7 @@ function OrbitWithRoll({ controlsRef }: { controlsRef: React.RefObject<OrbitCont
       enablePan={cameraPanFree}
       screenSpacePanning={cameraPanFree}
       enableRotate={!cameraPanFree}
-      mouseButtons={mouseButtons}
+      mouseButtons={mouseButtons as any}
       touches={touches}
       autoRotate={false}
       minDistance={ORBIT_MIN_DISTANCE}
@@ -230,7 +282,6 @@ function SceneCaptureRegistration() {
     const impl = (width: number, height: number, opts?: { transparent?: boolean }) =>
       captureSceneToPngDataUrl(gl, scene, camera as THREE.PerspectiveCamera, width, height, opts)
     setCaptureSceneAtSize(impl)
-    // Expose raw Three.js context for headless zoom control in renderApi
     ;(window as any).__mockitCtx = { gl, scene, camera }
     return () => {
       setCaptureSceneAtSize(null)
@@ -240,7 +291,6 @@ function SceneCaptureRegistration() {
   return null
 }
 
-/** Evita que el plano de sombra reciba raycasts y bloquee el arrastre del fondo. */
 function SceneContactShadows({ deviceKind }: { deviceKind: 'phone' | 'mac' }) {
   const groupRef = useRef<THREE.Group>(null)
   useLayoutEffect(() => {
@@ -265,7 +315,9 @@ function SceneContactShadows({ deviceKind }: { deviceKind: 'phone' | 'mac' }) {
 }
 
 function SceneWorld() {
-  const deviceKind = useStore((s) => s.deviceKind)
+  const devices = useStore((s) => s.devices)
+  const activeDeviceId = useStore((s) => s.activeDeviceId)
+  const activeDevice = devices.find((d) => d.id === activeDeviceId) ?? devices[0]
   const orbitControlsRef = useRef<OrbitControlsImpl>(null)
 
   return (
@@ -289,19 +341,9 @@ function SceneWorld() {
       <directionalLight position={[2, -4, -14]} intensity={0.42} color="#ffffff" />
       <pointLight position={[0, 7, 6]} intensity={0.22} color="#fff5eb" />
 
-      <DeviceScene orbitControlsRef={orbitControlsRef}>
-        {deviceKind === 'phone' ? (
-            <Suspense fallback={<PhoneProcedural />}>
-              <PhoneFromGltf />
-            </Suspense>
-          ) : (
-            <Suspense fallback={<MacBook />}>
-              <MacBookFromGltf />
-            </Suspense>
-          )}
-      </DeviceScene>
+      <DeviceScene orbitControlsRef={orbitControlsRef} />
 
-      <SceneContactShadows deviceKind={deviceKind} />
+      <SceneContactShadows deviceKind={activeDevice?.deviceKind ?? 'phone'} />
       <Environment preset="studio" environmentIntensity={0.74} />
       <OrbitWithRoll controlsRef={orbitControlsRef} />
     </>

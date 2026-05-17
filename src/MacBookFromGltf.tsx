@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { useStore } from './store'
 import { ScreenshotPlane } from './ScreenshotPlane'
 
 const MODEL_URL = '/models/macbook/macbook.glb'
@@ -93,8 +92,7 @@ const _c = new THREE.Vector3()
 const _qWrap = new THREE.Quaternion()
 const _qMesh = new THREE.Quaternion()
 
-export function MacBookFromGltf() {
-  const { screenshot, deviceColor } = useStore()
+export function MacBookFromGltf({ screenshot, deviceColor }: { screenshot: string | null; deviceColor: string }) {
   const { scene } = useGLTF(MODEL_URL)
   const wrapperRef = useRef<THREE.Group>(null)
   const screenOverlayRef = useRef<THREE.Group>(null)

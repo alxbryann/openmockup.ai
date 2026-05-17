@@ -39,14 +39,18 @@ function waitFrames(n: number): Promise<void> {
   // Stop auto-rotate so the device stays at the exact angle we set
   store.setAutoRotate(false)
 
-  // Apply parameters
-  store.setDeviceKind('phone')
-  if (opts.deviceColor) store.setDeviceColor(opts.deviceColor)
-  if (opts.bgColor) store.setBgColor(opts.bgColor)
-  if (opts.deviceRotation) store.setDeviceRotation(opts.deviceRotation)
+  // Ensure at least one device exists
+  if (store.devices.length === 0) store.addDevice()
+  const deviceId = useStore.getState().devices[0].id
 
-  // Load screenshot
-  store.setScreenshot(opts.imageDataUrl)
+  // Apply parameters to the first device
+  useStore.getState().updateDevice(deviceId, {
+    deviceKind: 'phone',
+    screenshot: opts.imageDataUrl,
+    ...(opts.deviceColor ? { deviceColor: opts.deviceColor } : {}),
+    ...(opts.deviceRotation ? { deviceRotation: opts.deviceRotation } : {}),
+  })
+  if (opts.bgColor) store.setBgColor(opts.bgColor)
 
   // Wait for React to reconcile + Three.js to render the new state.
   await waitFrames(6)

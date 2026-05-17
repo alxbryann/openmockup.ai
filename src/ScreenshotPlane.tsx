@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { invalidate, useThree } from '@react-three/fiber'
-import { useStore } from './store'
 
 /**
  * `ShapeGeometry` in three@0.184 sets `uv` to raw vertex (x,y) — not [0,1]. Without this,
@@ -76,6 +75,8 @@ export type ScreenshotPlaneProps = {
   z?: number
   /** When true, UVs are flipped so the texture reads upright on laptop lids that use the opposite winding. */
   flipTexture180?: boolean
+  /** Called with an error message when the image fails to load, or null when it succeeds. */
+  onLoadError?: (msg: string | null) => void
 }
 
 /** R3F can reset `map` on reconciler passes; keep one THREE material and assign `map` imperatively. */
@@ -88,6 +89,7 @@ export function ScreenshotPlane({
   minCornerR = 0.02,
   z = 0,
   flipTexture180 = false,
+  onLoadError,
 }: ScreenshotPlaneProps) {
   const mat = useMemo(
     () =>
@@ -102,7 +104,6 @@ export function ScreenshotPlane({
     [],
   )
   const gl = useThree((s) => s.gl)
-  const setScreenLoadError = useStore((s) => s.setScreenLoadError)
 
   useEffect(() => {
     /* eslint-disable react-hooks/immutability */
@@ -115,7 +116,7 @@ export function ScreenshotPlane({
     }
 
     let cancelled = false
-    queueMicrotask(() => setScreenLoadError(null))
+    queueMicrotask(() => onLoadError?.(null))
 
     const loader = new THREE.TextureLoader()
     loader.load(
@@ -138,7 +139,7 @@ export function ScreenshotPlane({
         mat.color.set(0xffffff)
         mat.needsUpdate = true
         invalidate()
-        setScreenLoadError(null)
+        onLoadError?.(null)
       },
       undefined,
       () => {
@@ -147,7 +148,7 @@ export function ScreenshotPlane({
         mat.map = null
         mat.color.set(0x050505)
         mat.needsUpdate = true
-        setScreenLoadError(
+        onLoadError?.(
           'No se pudo mostrar la imagen en 3D. Prueba JPEG o PNG, o exporta la captura sin HEIC.',
         )
       },
@@ -161,7 +162,7 @@ export function ScreenshotPlane({
       mat.needsUpdate = true
     }
     /* eslint-enable react-hooks/immutability */
-  }, [screenshot, gl, mat, setScreenLoadError])
+  }, [screenshot, gl, mat, onLoadError])
 
   useEffect(
     () => () => {

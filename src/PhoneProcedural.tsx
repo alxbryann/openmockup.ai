@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { RoundedBox } from '@react-three/drei'
-import { useStore } from './store'
 import {
   frameColorSaturation,
   frameMaterialLuminance,
@@ -497,8 +496,7 @@ function BottomDetails() {
   )
 }
 
-export function PhoneProcedural() {
-  const { screenshot, deviceColor } = useStore()
+export function PhoneProcedural({ screenshot, deviceColor }: { screenshot: string | null; deviceColor: string }) {
   const frameMat = useFramePhysicalMaterial(deviceColor)
 
   // Bezel: outer rounded shape with inner hole (screen cutout)

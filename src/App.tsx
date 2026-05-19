@@ -7,7 +7,7 @@ import {
   ORBIT_ZOOM_REF_DISTANCE,
 } from './Scene'
 import { useStore, type DeviceKind } from './store'
-import { GRADIENT_PRESETS, isGradientBg } from './gradients'
+import { GRADIENT_PRESETS } from './gradients'
 
 const DEVICE_OPTIONS: { id: DeviceKind; label: string }[] = [
   { id: 'phone', label: 'Phone' },
@@ -215,9 +215,9 @@ export default function App() {
     <div className="flex h-full min-h-0 w-full flex-col" style={{ background: 'var(--mockit-bg)' }}>
       {/* Studio loading splash */}
       <div className="mockit-loading-overlay" data-hidden={studioReady ? 'true' : 'false'}>
-        <svg viewBox="0 0 40 40" width={48} height={48} style={{ flexShrink: 0 }}>
+        <svg viewBox="0 0 40 40" width={52} height={52} style={{ flexShrink: 0 }} aria-hidden>
           <defs>
-            <radialGradient id="ldr-orb" cx="35%" cy="30%" r="70%">
+            <radialGradient id="ldr-main" cx="35%" cy="30%" r="70%">
               <stop offset="0" stopColor="#ffffff" stopOpacity=".9" />
               <stop offset=".4" stopColor="#c5b3ff" />
               <stop offset="1" stopColor="#6e4bff" />
@@ -227,7 +227,7 @@ export default function App() {
               <stop offset="1" stopColor="#ff7eb6" stopOpacity="0" />
             </radialGradient>
           </defs>
-          <circle cx="20" cy="20" r="17" fill="url(#ldr-orb)" />
+          <circle cx="20" cy="20" r="17" fill="url(#ldr-main)" />
           <circle cx="20" cy="20" r="17" fill="url(#ldr-blush)" />
           <ellipse cx="14" cy="12" rx="6" ry="3" fill="#fff" opacity=".55" />
         </svg>
@@ -249,21 +249,21 @@ export default function App() {
         <div className="flex items-center gap-2.5">
           {/* PhoneGlyph kept for future use */}
           <PhoneGlyph className="hidden" aria-hidden />
-          {/* Glass orb logo */}
-          <svg viewBox="0 0 40 40" width={30} height={30} style={{ flexShrink: 0 }}>
+          {/* OpenMockup orb logo */}
+          <svg viewBox="0 0 40 40" width={30} height={30} style={{ flexShrink: 0 }} aria-hidden>
             <defs>
-              <radialGradient id="orb-s" cx="35%" cy="30%" r="70%">
+              <radialGradient id="orb-main" cx="35%" cy="30%" r="70%">
                 <stop offset="0" stopColor="#ffffff" stopOpacity=".9" />
                 <stop offset=".4" stopColor="#c5b3ff" />
                 <stop offset="1" stopColor="#6e4bff" />
               </radialGradient>
-              <radialGradient id="blush-s" cx="65%" cy="65%" r="60%">
+              <radialGradient id="orb-blush" cx="65%" cy="65%" r="60%">
                 <stop offset="0" stopColor="#ff7eb6" stopOpacity=".8" />
                 <stop offset="1" stopColor="#ff7eb6" stopOpacity="0" />
               </radialGradient>
             </defs>
-            <circle cx="20" cy="20" r="17" fill="url(#orb-s)" />
-            <circle cx="20" cy="20" r="17" fill="url(#blush-s)" />
+            <circle cx="20" cy="20" r="17" fill="url(#orb-main)" />
+            <circle cx="20" cy="20" r="17" fill="url(#orb-blush)" />
             <ellipse cx="14" cy="12" rx="6" ry="3" fill="#fff" opacity=".55" />
           </svg>
           <span

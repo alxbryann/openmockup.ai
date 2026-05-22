@@ -48,6 +48,11 @@ type State = {
   cameraRoll: number
   cameraPanFree: boolean
   orbitDistance: number
+  cameraPosition: [number, number, number]
+  cameraTarget: [number, number, number]
+  viewportAspect: number
+  viewportInsetRight: number
+  hydrationSeq: number
   captureSceneAtSize: null | ((width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => string)
   deviceDragMode: 'rotate' | 'move'
   setDeviceDragMode: (m: 'rotate' | 'move') => void
@@ -67,6 +72,21 @@ type State = {
   toggleCameraPanFree: () => void
   setCameraPanFree: (v: boolean) => void
   setOrbitDistance: (d: number) => void
+  setCameraPose: (position: [number, number, number], target: [number, number, number]) => void
+  setViewportAspect: (aspect: number) => void
+  setViewportInsetRight: (fraction: number) => void
+  hydrateFromSnapshot: (snap: {
+    devices: DeviceInstance[]
+    bgColor: string
+    uiTheme: 'dark' | 'light'
+    cameraRoll: number
+    orbitDistance: number
+    autoRotate?: boolean
+    cameraPosition?: [number, number, number]
+    cameraTarget?: [number, number, number]
+    viewportAspect?: number
+    viewportInsetRight?: number
+  }) => void
 }
 
 const firstDevice = makeDevice(0)
@@ -80,6 +100,11 @@ export const useStore = create<State>((set) => ({
   cameraRoll: 0,
   cameraPanFree: false,
   orbitDistance: 28,
+  cameraPosition: [0, 0, 28],
+  cameraTarget: [0, 0, 0],
+  viewportAspect: 1,
+  viewportInsetRight: 0,
+  hydrationSeq: 0,
   captureSceneAtSize: null,
   deviceDragMode: 'rotate',
   setDeviceDragMode: (m) => set({ deviceDragMode: m }),
@@ -154,4 +179,33 @@ export const useStore = create<State>((set) => ({
   toggleCameraPanFree: () => set((s) => ({ cameraPanFree: !s.cameraPanFree })),
   setCameraPanFree: (v) => set({ cameraPanFree: v }),
   setOrbitDistance: (d) => set({ orbitDistance: d }),
+  setCameraPose: (position, target) => set({ cameraPosition: position, cameraTarget: target }),
+  setViewportAspect: (aspect) => set({ viewportAspect: aspect }),
+  setViewportInsetRight: (fraction) => set({ viewportInsetRight: Math.max(0, Math.min(0.95, fraction)) }),
+
+  hydrateFromSnapshot: (snap) =>
+    set((s) => {
+      const devices = snap.devices.length > 0 ? snap.devices : [makeDevice(0)]
+      return {
+        devices: devices.map((d) => ({
+          ...d,
+          deviceRotation: [
+            wrapSignedPi(d.deviceRotation[0]),
+            wrapSignedPi(d.deviceRotation[1]),
+            wrapSignedPi(d.deviceRotation[2]),
+          ] as [number, number, number],
+        })),
+        activeDeviceId: devices[0].id,
+        bgColor: snap.bgColor,
+        uiTheme: snap.uiTheme,
+        cameraRoll: wrapCameraRoll(snap.cameraRoll),
+        orbitDistance: snap.orbitDistance,
+        autoRotate: snap.autoRotate ?? false,
+        cameraPosition: snap.cameraPosition ?? [0, 0, snap.orbitDistance],
+        cameraTarget: snap.cameraTarget ?? [0, 0, 0],
+        viewportAspect: snap.viewportAspect ?? 1,
+        viewportInsetRight: snap.viewportInsetRight ?? 0,
+        hydrationSeq: s.hydrationSeq + 1,
+      }
+    }),
 }))

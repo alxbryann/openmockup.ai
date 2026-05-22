@@ -196,7 +196,36 @@ const TOUCH_PAN_MODE = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_PAN } as const
 function OrbitWithRoll({ controlsRef }: { controlsRef: React.RefObject<OrbitControlsImpl | null> }) {
   const cameraRoll = useStore((s) => s.cameraRoll)
   const cameraPanFree = useStore((s) => s.cameraPanFree)
+  const hydrationSeq = useStore((s) => s.hydrationSeq)
   const lastOrbitDistRef = useRef<number | null>(null)
+  const lastPoseKeyRef = useRef<string | null>(null)
+
+  // When the studio hydrates a project, snap the camera to the saved pose.
+  useEffect(() => {
+    let cancelled = false
+    function apply() {
+      if (cancelled) return
+      const ctl = controlsRef.current
+      if (!ctl) {
+        requestAnimationFrame(apply)
+        return
+      }
+      const s = useStore.getState()
+      const cam = ctl.object as THREE.PerspectiveCamera
+      const [px, py, pz] = s.cameraPosition
+      const [tx, ty, tz] = s.cameraTarget
+      cam.position.set(px, py, pz)
+      ctl.target.set(tx, ty, tz)
+      ctl.update()
+      const dist = cam.position.distanceTo(ctl.target)
+      lastOrbitDistRef.current = Math.round(dist * 10) / 10
+      lastPoseKeyRef.current = `${px.toFixed(2)},${py.toFixed(2)},${pz.toFixed(2)}|${tx.toFixed(2)},${ty.toFixed(2)},${tz.toFixed(2)}`
+    }
+    apply()
+    return () => {
+      cancelled = true
+    }
+  }, [hydrationSeq, controlsRef])
 
   const mouseButtons = useMemo(
     () => (cameraPanFree ? MOUSE_PAN_MODE : MOUSE_DEVICE_VIEW_MODE),
@@ -242,9 +271,25 @@ function OrbitWithRoll({ controlsRef }: { controlsRef: React.RefObject<OrbitCont
     if (ctl) {
       const d = ctl.getDistance()
       const stepped = Math.round(d * 10) / 10
-      if (lastOrbitDistRef.current !== stepped) {
+      // Don't write back to the store until the hydration apply() has set the baseline.
+      // Otherwise we'd overwrite a freshly-hydrated pose with the camera's default.
+      if (lastOrbitDistRef.current !== null && lastOrbitDistRef.current !== stepped) {
         lastOrbitDistRef.current = stepped
         useStore.getState().setOrbitDistance(stepped)
+      }
+      if (lastPoseKeyRef.current !== null) {
+        const cam = ctl.object as THREE.PerspectiveCamera
+        const px = Math.round(cam.position.x * 100) / 100
+        const py = Math.round(cam.position.y * 100) / 100
+        const pz = Math.round(cam.position.z * 100) / 100
+        const tx = Math.round(ctl.target.x * 100) / 100
+        const ty = Math.round(ctl.target.y * 100) / 100
+        const tz = Math.round(ctl.target.z * 100) / 100
+        const key = `${px.toFixed(2)},${py.toFixed(2)},${pz.toFixed(2)}|${tx.toFixed(2)},${ty.toFixed(2)},${tz.toFixed(2)}`
+        if (key !== lastPoseKeyRef.current) {
+          lastPoseKeyRef.current = key
+          useStore.getState().setCameraPose([px, py, pz], [tx, ty, tz])
+        }
       }
     }
     if (!ctl || cameraRoll === 0) return

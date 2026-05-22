@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { projectStore, type ProjectSummary } from './projectStore'
 
-type Props = { onEnter: () => void }
+type Props = { onEnter: (projectId?: string) => void }
 
 const Logo = () => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -141,8 +142,40 @@ function MacShape() {
   )
 }
 
+function useReveal<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            ;(entry.target as HTMLElement).dataset.visible = 'true'
+            io.unobserve(entry.target)
+          }
+        }
+      },
+      { threshold: 0.15, rootMargin: '0px 0px -60px 0px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+  return ref
+}
+
 export default function Landing({ onEnter }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [publicProjects, setPublicProjects] = useState<ProjectSummary[]>([])
+  const featuresHeaderRef = useReveal<HTMLDivElement>()
+  const featuresGridRef = useReveal<HTMLDivElement>()
+  const galleryHeaderRef = useReveal<HTMLDivElement>()
+  const galleryGridRef = useReveal<HTMLDivElement>()
+  const ctaCardRef = useReveal<HTMLDivElement>()
+
+  useEffect(() => {
+    projectStore.listPublic(3).then(setPublicProjects).catch(() => setPublicProjects([]))
+  }, [])
 
   return (
     <div
@@ -155,17 +188,8 @@ export default function Landing({ onEnter }: Props) {
         position: 'relative',
       }}
     >
-      {/* Fixed background covers entire viewport at all scroll depths */}
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: -1,
-        background: `
-          radial-gradient(60% 50% at 80% 10%, #ffd1f5 0%, transparent 60%),
-          radial-gradient(50% 50% at 10% 30%, #c3e9ff 0%, transparent 55%),
-          radial-gradient(70% 60% at 50% 100%, #d6ffe9 0%, transparent 60%),
-          linear-gradient(180deg, #f4ecff 0%, #ffefe7 100%)
-        `,
-        pointerEvents: 'none',
-      }} />
+      {/* Fixed animated aurora background */}
+      <div className="landing-bg-aurora" aria-hidden />
 
       {/* ── Nav ── */}
       <nav className="landing-nav">
@@ -201,7 +225,7 @@ export default function Landing({ onEnter }: Props) {
               )}
             </svg>
           </button>
-          <button onClick={onEnter} style={{
+          <button onClick={() => onEnter()} style={{
             padding: '8px 18px', border: 'none',
             background: 'var(--accent)', borderRadius: 999,
             font: '600 14px/1 var(--font-sans)', color: '#fff',
@@ -231,7 +255,7 @@ export default function Landing({ onEnter }: Props) {
             padding: '4px 12px', borderRadius: 999, fontSize: 13, fontWeight: 500,
             background: 'var(--surface-2)', border: '1px solid var(--border)',
             color: 'var(--fg-2)', marginBottom: 28,
-          }}>✦ Now with motion mockups</div>
+          }}><span className="landing-hero-badge-sparkle">✦</span> Now with motion mockups</div>
 
           <h1 style={{
             fontFamily: 'var(--font-display)', fontWeight: 700,
@@ -240,10 +264,7 @@ export default function Landing({ onEnter }: Props) {
             margin: '0 0 24px', color: 'var(--fg)',
           }}>
             Mockups{' '}
-            <span style={{
-              background: 'linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3))',
-              WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
-            }}>that pop.</span>
+            <span className="landing-pop">that pop.</span>
             <br />Made in seconds.
           </h1>
 
@@ -252,7 +273,7 @@ export default function Landing({ onEnter }: Props) {
             No Blender. No render queue. Just gorgeous mockups in a tab.
           </p>
 
-          <button onClick={onEnter} style={{
+          <button onClick={() => onEnter()} className="landing-cta-primary" style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             padding: '14px 24px', borderRadius: 999, border: 'none',
             background: 'var(--accent)', color: '#fff',
@@ -263,30 +284,32 @@ export default function Landing({ onEnter }: Props) {
           }}
           onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.06)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
           onMouseLeave={e => { e.currentTarget.style.filter = ''; e.currentTarget.style.transform = '' }}
-          >Start a mockup →</button>
+          >Start a mockup <span className="landing-cta-arrow">→</span></button>
         </div>
 
-        <div className="landing-hero-devices">
+        <div className="landing-hero-devices landing-hero-devices-stage">
           {/* Glow blobs behind devices */}
-          <div style={{
+          <div className="landing-blob" style={{
             position: 'absolute', width: 340, height: 340, borderRadius: '50%',
-            filter: 'blur(70px)', opacity: 0.5,
+            filter: 'blur(70px)',
             background: 'radial-gradient(circle, #ff7eb6 0%, transparent 70%)',
             top: '5%', right: '10%', pointerEvents: 'none',
+            ['--blob-opacity' as string]: 0.5,
           }} />
-          <div style={{
+          <div className="landing-blob landing-blob-b" style={{
             position: 'absolute', width: 280, height: 280, borderRadius: '50%',
-            filter: 'blur(60px)', opacity: 0.4,
+            filter: 'blur(60px)',
             background: 'radial-gradient(circle, #6e4bff 0%, transparent 70%)',
             bottom: '5%', left: '5%', pointerEvents: 'none',
+            ['--blob-opacity' as string]: 0.4,
           }} />
 
           {/* MacBook behind */}
-          <div style={{ position: 'absolute', left: '2%', bottom: '8%', zIndex: 1, opacity: 0.9 }}>
+          <div className="landing-device-float-b" style={{ position: 'absolute', left: '2%', bottom: '8%', zIndex: 1, opacity: 0.9 }}>
             <MacShape />
           </div>
           {/* iPhone front */}
-          <div style={{ position: 'relative', zIndex: 2, transform: 'rotate(-5deg) translateY(-10px)' }}>
+          <div className="landing-device-float-a" style={{ position: 'relative', zIndex: 2, ['--rot' as string]: '-5deg', transform: 'rotate(-5deg)' }}>
             <PhoneShape scale={1.15} />
           </div>
         </div>
@@ -296,15 +319,17 @@ export default function Landing({ onEnter }: Props) {
         <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', color: 'var(--fg-3)', whiteSpace: 'nowrap', textTransform: 'uppercase' }}>
           Trusted by teams at
         </span>
-        <div className="landing-logos-list">
-          {logos.map(l => (
-            <span key={l} style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg-3)', letterSpacing: '-0.01em' }}>{l}</span>
-          ))}
+        <div className="landing-logos-viewport">
+          <div className="landing-logos-track">
+            {[...logos, ...logos].map((l, i) => (
+              <span key={`${l}-${i}`} style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg-3)', letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>{l}</span>
+            ))}
+          </div>
         </div>
       </div>
 
       <section className="landing-section">
-        <div style={{ marginBottom: 56 }}>
+        <div ref={featuresHeaderRef} className="landing-reveal" style={{ marginBottom: 56 }}>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             padding: '4px 12px', borderRadius: 999, fontSize: 13, fontWeight: 500,
@@ -320,9 +345,10 @@ export default function Landing({ onEnter }: Props) {
           </h2>
         </div>
 
-        <div className="landing-features-grid">
+        <div ref={featuresGridRef} className="landing-features-grid landing-reveal" data-delay="1">
           {features.map(f => (
             <div key={f.title}
+              className="landing-feature-card"
               style={{
                 background: 'var(--surface)',
                 WebkitBackdropFilter: 'blur(20px) saturate(160%)',
@@ -331,12 +357,9 @@ export default function Landing({ onEnter }: Props) {
                 borderRadius: 'var(--radius)',
                 boxShadow: 'var(--shadow-1)',
                 padding: '32px 28px 36px',
-                transition: 'transform .2s ease',
               }}
-              onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-3px)')}
-              onMouseLeave={e => (e.currentTarget.style.transform = '')}
             >
-              <div style={{
+              <div className="landing-feature-icon" style={{
                 width: 44, height: 44, borderRadius: 12,
                 background: f.color, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 18, color: '#fff', marginBottom: 20,
@@ -355,7 +378,7 @@ export default function Landing({ onEnter }: Props) {
       </section>
 
       <section className="landing-gallery-section">
-        <div className="landing-gallery-header">
+        <div ref={galleryHeaderRef} className="landing-gallery-header landing-reveal">
           <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 'clamp(28px, 3vw, 44px)', letterSpacing: '-0.04em', margin: 0, color: 'var(--fg)' }}>
             See it in action
           </h2>
@@ -367,35 +390,87 @@ export default function Landing({ onEnter }: Props) {
             WebkitBackdropFilter: 'blur(12px)', backdropFilter: 'blur(12px)',
           }}>Explore gallery →</button>
         </div>
-        <div className="landing-gallery-grid">
-          {gallery.map(g => (
-            <div key={g.handle} className="landing-gallery-card">
-              <img
-                src={g.img}
-                alt={`Mockup by ${g.handle}`}
-                style={{
-                  width: '100%', height: '100%',
-                  objectFit: 'cover',
-                  display: 'block',
-                }}
-              />
-              <div style={{ position: 'absolute', top: 16, left: 16 }}>
-                <span style={{
-                  padding: '5px 11px', borderRadius: 999,
-                  background: 'rgba(0,0,0,.35)',
-                  fontSize: 12, fontWeight: 500, color: '#fff',
-                  backdropFilter: 'blur(10px)',
-                  WebkitBackdropFilter: 'blur(10px)',
-                  border: '1px solid rgba(255,255,255,.15)',
-                }}>{g.handle}</span>
-              </div>
-            </div>
-          ))}
+        <div ref={galleryGridRef} className="landing-gallery-grid landing-reveal" data-delay="1">
+          {publicProjects.length > 0
+            ? publicProjects.map((p) => {
+                const inset = Math.max(0, Math.min(0.9, p.viewportInsetRight || 0))
+                const aspect = (p.viewportAspect || 1) * (1 - inset)
+                const iframeWidthPct = 100 / (1 - inset)
+                return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onEnter(p.id)}
+                  className="landing-gallery-card"
+                  style={{
+                    padding: 0,
+                    border: 'none',
+                    background: '#000',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    height: 'auto',
+                    aspectRatio: String(aspect),
+                    overflow: 'hidden',
+                  }}
+                  aria-label={`Open ${p.name} in studio`}
+                >
+                  <iframe
+                    src={`?project=${p.id}&embed=1`}
+                    title={p.name}
+                    loading="lazy"
+                    style={{
+                      width: `${iframeWidthPct}%`, height: '100%',
+                      border: 'none', display: 'block',
+                      pointerEvents: 'none',
+                      position: 'absolute', top: 0, left: 0,
+                    }}
+                  />
+                  <div style={{ position: 'absolute', top: 16, left: 16 }}>
+                    <span style={{
+                      padding: '5px 11px', borderRadius: 999,
+                      background: 'rgba(0,0,0,.45)',
+                      fontSize: 12, fontWeight: 500, color: '#fff',
+                      backdropFilter: 'blur(10px)',
+                      WebkitBackdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255,255,255,.15)',
+                    }}>{p.name}</span>
+                  </div>
+                  <div style={{ position: 'absolute', bottom: 16, right: 16 }}>
+                    <span style={{
+                      padding: '5px 11px', borderRadius: 999,
+                      background: 'rgba(110,75,255,.6)',
+                      fontSize: 12, fontWeight: 600, color: '#fff',
+                      backdropFilter: 'blur(10px)',
+                      WebkitBackdropFilter: 'blur(10px)',
+                    }}>Open ↗</span>
+                  </div>
+                </button>
+                )
+              })
+            : gallery.map((g) => (
+                <div key={g.handle} className="landing-gallery-card">
+                  <img
+                    src={g.img}
+                    alt={`Mockup by ${g.handle}`}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  />
+                  <div style={{ position: 'absolute', top: 16, left: 16 }}>
+                    <span style={{
+                      padding: '5px 11px', borderRadius: 999,
+                      background: 'rgba(0,0,0,.35)',
+                      fontSize: 12, fontWeight: 500, color: '#fff',
+                      backdropFilter: 'blur(10px)',
+                      WebkitBackdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255,255,255,.15)',
+                    }}>{g.handle}</span>
+                  </div>
+                </div>
+              ))}
         </div>
       </section>
 
       <section className="landing-cta-section">
-        <div className="landing-cta-card">
+        <div ref={ctaCardRef} className="landing-cta-card landing-reveal">
           <h2 style={{
             fontFamily: 'var(--font-display)', fontWeight: 700,
             fontSize: 'clamp(36px, 4vw, 60px)', letterSpacing: '-0.04em', lineHeight: 1.02,
@@ -407,7 +482,7 @@ export default function Landing({ onEnter }: Props) {
             Free while in beta. No card, no email gate. Just open the studio and drop a screen.
           </p>
           <div className="landing-cta-actions">
-            <button onClick={onEnter} style={{
+            <button onClick={() => onEnter()} className="landing-cta-primary" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               padding: '14px 24px', borderRadius: 999, border: 'none',
               background: 'var(--accent)', color: '#fff',
@@ -418,7 +493,7 @@ export default function Landing({ onEnter }: Props) {
             }}
             onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.06)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
             onMouseLeave={e => { e.currentTarget.style.filter = ''; e.currentTarget.style.transform = '' }}
-            >Open openmockup.ai →</button>
+            >Open openmockup.ai <span className="landing-cta-arrow">→</span></button>
             <button style={{
               padding: '14px 22px', borderRadius: 999,
               border: '1px solid var(--border-2)', background: 'var(--surface-2)',

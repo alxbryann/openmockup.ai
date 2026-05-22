@@ -8,6 +8,10 @@ import {
 } from './Scene'
 import { useStore, type DeviceKind } from './store'
 import { GRADIENT_PRESETS } from './gradients'
+import { projectStore, snapshotFromStoreState, type Project } from './projectStore'
+import { ProjectPicker } from './ProjectPicker'
+
+type AppProps = { initialProjectId?: string | null }
 
 const DEVICE_OPTIONS: { id: DeviceKind; label: string }[] = [
   { id: 'phone', label: 'Phone' },
@@ -54,8 +58,10 @@ const DEVICE_COLOR_GROUPS: { label: string; colors: { hex: string; name: string 
 ]
 const BG_SWATCHES = ['#0a0a0a', '#ffffff', '#0f172a', '#14532d', '#5c4033', '#f4f4f5'] as const
 
-export default function App() {
+export default function App({ initialProjectId = null }: AppProps = {}) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const sceneHostRef = useRef<HTMLDivElement>(null)
+  const [sidePanelOpen, setSidePanelOpen] = useState(true)
   const {
     devices,
     activeDeviceId,
@@ -77,7 +83,143 @@ export default function App() {
     setUiTheme,
     setCameraRoll,
     setCameraPanFree,
+    hydrateFromSnapshot,
   } = useStore()
+
+  const cameraPosition = useStore((s) => s.cameraPosition)
+  const cameraTarget = useStore((s) => s.cameraTarget)
+  const viewportAspect = useStore((s) => s.viewportAspect)
+  const viewportInsetRight = useStore((s) => s.viewportInsetRight)
+  const setViewportAspect = useStore((s) => s.setViewportAspect)
+  const setViewportInsetRight = useStore((s) => s.setViewportInsetRight)
+
+  // Track the scene canvas aspect ratio so the embed can reproduce the same framing.
+  useEffect(() => {
+    const el = sceneHostRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect()
+      if (r.width > 0 && r.height > 0) {
+        const aspect = Math.round((r.width / r.height) * 1000) / 1000
+        if (aspect !== useStore.getState().viewportAspect) {
+          setViewportAspect(aspect)
+        }
+      }
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [setViewportAspect])
+
+  // Track how much of the canvas width is covered by the side panel overlay.
+  // The embed uses this to reproduce the same effective framing.
+  useEffect(() => {
+    const host = sceneHostRef.current
+    if (!host) return
+    const aside = host.querySelector('aside')
+    if (!sidePanelOpen || !aside) {
+      if (useStore.getState().viewportInsetRight !== 0) setViewportInsetRight(0)
+      return
+    }
+    function measure() {
+      const hostRect = host!.getBoundingClientRect()
+      const asideRect = (aside as HTMLElement).getBoundingClientRect()
+      if (hostRect.width <= 0) return
+      // Distance from the host's right edge to the aside's left edge, as a fraction of host width.
+      const insetPx = Math.max(0, hostRect.right - asideRect.left)
+      const fraction = Math.round((insetPx / hostRect.width) * 1000) / 1000
+      if (fraction !== useStore.getState().viewportInsetRight) {
+        setViewportInsetRight(fraction)
+      }
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(host)
+    ro.observe(aside as HTMLElement)
+    return () => ro.disconnect()
+  }, [sidePanelOpen, setViewportInsetRight])
+
+  const [activeProject, setActiveProject] = useState<Project | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const projectReadyRef = useRef(false)
+
+  // Load (or create) the active project once, on mount.
+  useEffect(() => {
+    let cancelled = false
+    async function bootstrap() {
+      const id = initialProjectId ?? projectStore.getLastOpenedId()
+      let project = id ? await projectStore.get(id) : null
+      if (!project) {
+        project = await projectStore.create()
+      }
+      if (cancelled) return
+      hydrateFromSnapshot(project.snapshot)
+      setActiveProject(project)
+      projectStore.setLastOpenedId(project.id)
+      // Reflect project id in URL without reloading
+      const q = new URLSearchParams(location.search)
+      if (q.get('project') !== project.id) {
+        q.set('studio', '')
+        q.set('project', project.id)
+        history.replaceState(null, '', `?${q.toString().replace('studio=&', 'studio&')}`)
+      }
+      // Give hydrate time to settle before autosave starts.
+      requestAnimationFrame(() => {
+        projectReadyRef.current = true
+      })
+    }
+    bootstrap()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Autosave (debounced) whenever any persisted slice of the store changes.
+  useEffect(() => {
+    if (!activeProject || !projectReadyRef.current) return
+    const snapshot = snapshotFromStoreState({ devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight })
+    const handle = window.setTimeout(() => {
+      projectStore
+        .save(activeProject.id, { snapshot })
+        .then((p) => setActiveProject(p))
+        .catch((e) => console.error('autosave failed', e))
+    }, 600)
+    return () => window.clearTimeout(handle)
+  }, [activeProject, devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight])
+
+  const switchToProject = useCallback(
+    async (id: string) => {
+      const p = await projectStore.get(id)
+      if (!p) return
+      projectReadyRef.current = false
+      hydrateFromSnapshot(p.snapshot)
+      setActiveProject(p)
+      projectStore.setLastOpenedId(p.id)
+      setPickerOpen(false)
+      const q = new URLSearchParams(location.search)
+      q.set('project', p.id)
+      history.replaceState(null, '', `?${q.toString()}`)
+      requestAnimationFrame(() => {
+        projectReadyRef.current = true
+      })
+    },
+    [hydrateFromSnapshot],
+  )
+
+  const createAndOpen = useCallback(async () => {
+    projectReadyRef.current = false
+    const p = await projectStore.create()
+    hydrateFromSnapshot(p.snapshot)
+    setActiveProject(p)
+    projectStore.setLastOpenedId(p.id)
+    setPickerOpen(false)
+    const q = new URLSearchParams(location.search)
+    q.set('project', p.id)
+    history.replaceState(null, '', `?${q.toString()}`)
+    requestAnimationFrame(() => {
+      projectReadyRef.current = true
+    })
+  }, [hydrateFromSnapshot])
 
   const activeDevice = devices.find((d) => d.id === activeDeviceId) ?? devices[0]
   const { screenshot, screenLoadError, deviceKind, deviceColor, deviceRotation } = activeDevice
@@ -86,7 +228,6 @@ export default function App() {
   const [exportPreset, setExportPreset] = useState<ExportPreset>(3840)
   const [exportTransparentBg, setExportTransparentBg] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
-  const [sidePanelOpen, setSidePanelOpen] = useState(true)
   const [studioReady, setStudioReady] = useState(false)
   const mountTimeRef = useRef(Date.now())
 
@@ -281,6 +422,24 @@ export default function App() {
         <div className="flex items-center gap-1">
           <button
             type="button"
+            onClick={() => setPickerOpen(true)}
+            aria-label="Switch project"
+            title="Switch project"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-transparent px-2.5 py-1.5 transition"
+            style={{ color: 'rgba(255,255,255,.7)', font: '500 13px/1 var(--font-sans)', letterSpacing: '-0.005em' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.08)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M3 7h18M3 12h18M3 17h18" strokeLinecap="round" />
+            </svg>
+            <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {activeProject?.name ?? 'Loading…'}
+            </span>
+            <span style={{ opacity: 0.4 }}>▾</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setSidePanelOpen((o) => !o)}
             aria-pressed={sidePanelOpen}
             aria-label={sidePanelOpen ? 'Hide options panel' : 'Show options panel'}
@@ -305,7 +464,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="relative min-h-0 flex-1">
+      <div ref={sceneHostRef} className="relative min-h-0 flex-1">
         <Scene onReady={handleSceneReady} />
 
         {/* Zoom badge */}
@@ -973,6 +1132,19 @@ export default function App() {
           </div>
         </aside>
       </div>
+      <ProjectPicker
+        open={pickerOpen}
+        currentProjectId={activeProject?.id ?? null}
+        onPick={switchToProject}
+        onCreate={createAndOpen}
+        onClose={async () => {
+          setPickerOpen(false)
+          if (activeProject) {
+            const refreshed = await projectStore.get(activeProject.id)
+            if (refreshed) setActiveProject(refreshed)
+          }
+        }}
+      />
     </div>
   )
 }

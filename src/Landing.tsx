@@ -394,6 +394,8 @@ export default function Landing({ onEnter }: Props) {
           {publicProjects.length > 0
             ? publicProjects.map((p) => {
                 const inset = Math.max(0, Math.min(0.9, p.viewportInsetRight || 0))
+                // Thumbnails are captured at the visible viewport (panel area
+                // already cropped), so the card aspect equals viewportAspect * (1-inset).
                 const aspect = (p.viewportAspect || 1) * (1 - inset)
                 const iframeWidthPct = 100 / (1 - inset)
                 return (
@@ -414,17 +416,34 @@ export default function Landing({ onEnter }: Props) {
                   }}
                   aria-label={`Open ${p.name} in studio`}
                 >
-                  <iframe
-                    src={`?project=${p.id}&embed=1`}
-                    title={p.name}
-                    loading="lazy"
-                    style={{
-                      width: `${iframeWidthPct}%`, height: '100%',
-                      border: 'none', display: 'block',
-                      pointerEvents: 'none',
-                      position: 'absolute', top: 0, left: 0,
-                    }}
-                  />
+                  {p.thumbnail ? (
+                    <img
+                      src={p.thumbnail}
+                      alt={p.name}
+                      loading="lazy"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        display: 'block',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                      }}
+                    />
+                  ) : (
+                    <iframe
+                      src={`?project=${p.id}&embed=1`}
+                      title={p.name}
+                      loading="lazy"
+                      style={{
+                        width: `${iframeWidthPct}%`, height: '100%',
+                        border: 'none', display: 'block',
+                        pointerEvents: 'none',
+                        position: 'absolute', top: 0, left: 0,
+                      }}
+                    />
+                  )}
                   <div style={{ position: 'absolute', top: 16, left: 16 }}>
                     <span style={{
                       padding: '5px 11px', borderRadius: 999,

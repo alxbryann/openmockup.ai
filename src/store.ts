@@ -15,10 +15,16 @@ function wrapSignedPi(radians: number): number {
 
 export type DeviceKind = 'phone' | 'mac'
 
+export type ScreenMediaKind = 'image' | 'video'
+
 export type DeviceInstance = {
   id: string
   screenshot: string | null
+  /** When `screenshot` is set: image data URL or video blob URL. */
+  screenMediaKind: ScreenMediaKind | null
   screenLoadError: string | null
+  /** Loop / playback start offset in seconds (video only). */
+  videoStartTime: number
   deviceKind: DeviceKind
   deviceColor: string
   deviceRotation: [number, number, number]
@@ -30,7 +36,9 @@ function makeDevice(positionX = 0): DeviceInstance {
   return {
     id: crypto.randomUUID(),
     screenshot: null,
+    screenMediaKind: null,
     screenLoadError: null,
+    videoStartTime: 0,
     deviceKind: 'phone',
     deviceColor: '#DFCEEA',
     deviceRotation: [0, 0, 0],
@@ -189,6 +197,9 @@ export const useStore = create<State>((set) => ({
       return {
         devices: devices.map((d) => ({
           ...d,
+          screenMediaKind:
+            d.screenMediaKind ?? (d.screenshot ? 'image' : null),
+          videoStartTime: d.videoStartTime ?? 0,
           deviceRotation: [
             wrapSignedPi(d.deviceRotation[0]),
             wrapSignedPi(d.deviceRotation[1]),

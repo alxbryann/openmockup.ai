@@ -185,7 +185,17 @@ const logoMatProps = {
   envMapIntensity: 1.55,
 } as const
 
-export function MacBook({ screenshot, deviceColor }: { screenshot: string | null; deviceColor: string }) {
+export function MacBook({
+  deviceId,
+  screenshot,
+  screenMediaKind = null,
+  deviceColor,
+}: {
+  deviceId: string
+  screenshot: string | null
+  screenMediaKind?: import('./store').ScreenMediaKind | null
+  deviceColor: string
+}) {
   const frameMat = useFramePhysicalMaterial(deviceColor)
   const wedge = useMacWedge()
   const { apple: appleGeom, leaf: leafGeom } = useAppleLogoGeometries()
@@ -285,7 +295,9 @@ export function MacBook({ screenshot, deviceColor }: { screenshot: string | null
             </RoundedBox>
 
             <ScreenshotPlane
+              deviceId={deviceId}
               screenshot={screenshot}
+              screenMediaKind={screenMediaKind}
               screenW={SCREEN_W}
               screenH={SCREEN_H}
               openingCornerR={SCREEN_OPENING_CORNER_R}

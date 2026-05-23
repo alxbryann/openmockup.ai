@@ -762,3 +762,50 @@ body,
     text-align: left;
   }
 }
+
+/* Video timeline island (floating scrubber) */
+.video-timeline-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    rgba(110, 75, 255, 0.45) 0%,
+    rgba(110, 75, 255, 0.45) var(--range-progress, 0%),
+    rgba(255, 255, 255, 0.14) var(--range-progress, 0%),
+    rgba(255, 255, 255, 0.14) 100%
+  );
+  cursor: pointer;
+}
+
+.video-timeline-range:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.video-timeline-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid rgba(110, 75, 255, 0.9);
+  box-shadow: 0 0 12px rgba(110, 75, 255, 0.55);
+  margin-top: -4px;
+}
+
+.video-timeline-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid rgba(110, 75, 255, 0.9);
+  box-shadow: 0 0 12px rgba(110, 75, 255, 0.55);
+}
+
+.video-timeline-range::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}

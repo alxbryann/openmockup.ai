@@ -7,6 +7,9 @@ import {
   ORBIT_ZOOM_REF_DISTANCE,
 } from './Scene'
 import { useStore, type DeviceKind } from './store'
+import { inferScreenMediaKind, revokeScreenSrc } from './screenMedia'
+import { VideoTimelineIsland } from './VideoTimelineIsland'
+import { useVideoScreenBridge } from './videoScreenBridge'
 import { GRADIENT_PRESETS } from './gradients'
 import { projectStore, snapshotFromStoreState, type Project } from './projectStore'
 import { ProjectPicker } from './ProjectPicker'
@@ -82,6 +85,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     setAutoRotate,
     setUiTheme,
     setCameraRoll,
+    cameraPanFree,
     setCameraPanFree,
     hydrateFromSnapshot,
   } = useStore()
@@ -141,6 +145,8 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const [activeProject, setActiveProject] = useState<Project | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const projectReadyRef = useRef(false)
+  const autosaveDebounceRef = useRef<number | null>(null)
+  const autosaveMaxWaitRef = useRef<number | null>(null)
 
   // Load (or create) the active project once, on mount.
   useEffect(() => {
@@ -174,18 +180,66 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Autosave (debounced) whenever any persisted slice of the store changes.
+  // Autosave: debounce 600 ms after each change, but also force-save every 2.5 s
+  // so continuous changes (e.g. auto-rotate ticking each frame) still persist
+  // and keep the gallery thumbnail fresh.
   useEffect(() => {
     if (!activeProject || !projectReadyRef.current) return
-    const snapshot = snapshotFromStoreState({ devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight })
-    const handle = window.setTimeout(() => {
+
+    const projectId = activeProject.id
+
+    async function commitSave() {
+      if (autosaveDebounceRef.current != null) {
+        window.clearTimeout(autosaveDebounceRef.current)
+        autosaveDebounceRef.current = null
+      }
+      if (autosaveMaxWaitRef.current != null) {
+        window.clearTimeout(autosaveMaxWaitRef.current)
+        autosaveMaxWaitRef.current = null
+      }
+      const s = useStore.getState()
+      const snapshot = snapshotFromStoreState({
+        devices: s.devices,
+        bgColor: s.bgColor,
+        uiTheme: s.uiTheme,
+        cameraRoll: s.cameraRoll,
+        orbitDistance: s.orbitDistance,
+        autoRotate: s.autoRotate,
+        cameraPosition: s.cameraPosition,
+        cameraTarget: s.cameraTarget,
+        viewportAspect: s.viewportAspect,
+        viewportInsetRight: s.viewportInsetRight,
+      })
+      const thumbnail = await captureProjectThumbnail(s.bgColor, s.viewportInsetRight)
       projectStore
-        .save(activeProject.id, { snapshot })
+        .save(projectId, thumbnail !== null ? { snapshot, thumbnail } : { snapshot })
         .then((p) => setActiveProject(p))
         .catch((e) => console.error('autosave failed', e))
-    }, 600)
-    return () => window.clearTimeout(handle)
+    }
+
+    if (autosaveDebounceRef.current != null) window.clearTimeout(autosaveDebounceRef.current)
+    autosaveDebounceRef.current = window.setTimeout(commitSave, 600)
+    if (autosaveMaxWaitRef.current == null) {
+      autosaveMaxWaitRef.current = window.setTimeout(commitSave, 2500)
+    }
   }, [activeProject, devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight])
+
+  // Cancel any pending autosave for the previous project when the active
+  // project changes (or when the studio unmounts). Without this, the 2.5 s
+  // max-wait timer could fire after a project switch and write the new
+  // scene's thumbnail to the OLD project id captured in its closure.
+  useEffect(() => {
+    return () => {
+      if (autosaveDebounceRef.current != null) {
+        window.clearTimeout(autosaveDebounceRef.current)
+        autosaveDebounceRef.current = null
+      }
+      if (autosaveMaxWaitRef.current != null) {
+        window.clearTimeout(autosaveMaxWaitRef.current)
+        autosaveMaxWaitRef.current = null
+      }
+    }
+  }, [activeProject?.id])
 
   const switchToProject = useCallback(
     async (id: string) => {
@@ -222,7 +276,8 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   }, [hydrateFromSnapshot])
 
   const activeDevice = devices.find((d) => d.id === activeDeviceId) ?? devices[0]
-  const { screenshot, screenLoadError, deviceKind, deviceColor, deviceRotation } = activeDevice
+  const { screenshot, screenMediaKind, screenLoadError, deviceKind, deviceColor, deviceRotation } =
+    activeDevice
 
   const [exporting, setExporting] = useState(false)
   const [exportPreset, setExportPreset] = useState<ExportPreset>(3840)
@@ -271,16 +326,41 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const zoomRangeLo = parseFloat((ORBIT_ZOOM_REF_DISTANCE / ORBIT_MAX_DISTANCE).toFixed(1))
   const zoomRangeHi = parseFloat((ORBIT_ZOOM_REF_DISTANCE / ORBIT_MIN_DISTANCE).toFixed(1))
 
+  function clearActiveScreen() {
+    revokeScreenSrc(activeDevice.screenshot, activeDevice.screenMediaKind)
+    useVideoScreenBridge.getState().unregisterVideo(activeDevice.id)
+    updateDevice(activeDevice.id, {
+      screenshot: null,
+      screenMediaKind: null,
+      screenLoadError: null,
+      videoStartTime: 0,
+    })
+  }
+
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
     updateDevice(activeDevice.id, { screenLoadError: null })
 
+    const mediaKind = inferScreenMediaKind(file)
+
+    if (mediaKind === 'video') {
+      revokeScreenSrc(activeDevice.screenshot, activeDevice.screenMediaKind)
+      const objectUrl = URL.createObjectURL(file)
+      updateDevice(activeDevice.id, {
+        screenshot: objectUrl,
+        screenMediaKind: 'video',
+        videoStartTime: 0,
+      })
+      return
+    }
+
     const isHeic =
       /image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name)
 
     try {
+      revokeScreenSrc(activeDevice.screenshot, activeDevice.screenMediaKind)
       let dataUrl: string
       if (isHeic) {
         const heic2any = (await import('heic2any')).default
@@ -294,7 +374,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
       } else {
         dataUrl = await readFileAsDataUrl(file)
       }
-      updateDevice(activeDevice.id, { screenshot: dataUrl })
+      updateDevice(activeDevice.id, { screenshot: dataUrl, screenMediaKind: 'image' })
     } catch (err) {
       console.error(err)
       updateDevice(activeDevice.id, {
@@ -387,7 +467,18 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
           borderColor: 'rgba(255,255,255,.1)',
         }}
       >
-        <div className="flex items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => {
+            history.pushState(null, '', '/')
+            window.dispatchEvent(new PopStateEvent('popstate'))
+          }}
+          aria-label="Go to landing page"
+          title="Go to landing"
+          className="flex cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent p-1 transition"
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.06)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+        >
           {/* PhoneGlyph kept for future use */}
           <PhoneGlyph className="hidden" aria-hidden />
           {/* OpenMockup orb logo */}
@@ -418,7 +509,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
           >
             openmockup<span style={{ color: 'var(--accent)' }}>.ai</span>
           </span>
-        </div>
+        </button>
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -497,6 +588,8 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
             {zoomRangeLo}–{zoomRangeHi}×
           </p>
         </div>
+
+        {screenMediaKind === 'video' && <VideoTimelineIsland deviceId={activeDevice.id} />}
 
         {/* Side panel */}
         <aside
@@ -623,7 +716,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   + Mac
                 </button>
               </div>
-              {/* Rotate / Move toggle */}
+              {/* Rotate / Move toggle (device canvas mode only) */}
               <div className="mt-2 flex items-center gap-1.5">
                 {(['rotate', 'move'] as const).map((mode) => {
                   const isActive = deviceDragMode === mode
@@ -631,20 +724,34 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                     <button
                       key={mode}
                       type="button"
+                      disabled={cameraPanFree}
                       onClick={() => setDeviceDragMode(mode)}
-                      style={isActive ? {
-                        background: 'rgba(110,75,255,.25)',
-                        border: '1px solid var(--accent)',
-                        color: '#fff',
-                        borderRadius: 'var(--radius-sm)',
-                      } : {
-                        background: 'rgba(255,255,255,.07)',
-                        border: '1px solid rgba(255,255,255,.12)',
-                        color: 'rgba(255,255,255,.65)',
-                        borderRadius: 'var(--radius-sm)',
-                      }}
+                      style={
+                        cameraPanFree
+                          ? {
+                              background: 'rgba(255,255,255,.04)',
+                              border: '1px solid rgba(255,255,255,.08)',
+                              color: 'rgba(255,255,255,.28)',
+                              borderRadius: 'var(--radius-sm)',
+                              cursor: 'not-allowed',
+                            }
+                          : isActive
+                            ? {
+                                background: 'rgba(110,75,255,.25)',
+                                border: '1px solid var(--accent)',
+                                color: '#fff',
+                                borderRadius: 'var(--radius-sm)',
+                              }
+                            : {
+                                background: 'rgba(255,255,255,.07)',
+                                border: '1px solid rgba(255,255,255,.12)',
+                                color: 'rgba(255,255,255,.65)',
+                                borderRadius: 'var(--radius-sm)',
+                              }
+                      }
                       className="flex items-center gap-1 px-2.5 py-1 text-xs transition"
                       onMouseEnter={(e) => {
+                        if (cameraPanFree || isActive) return
                         if (!isActive) {
                           const el = e.currentTarget
                           el.style.background = 'rgba(255,255,255,.12)'
@@ -652,11 +759,10 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                         }
                       }}
                       onMouseLeave={(e) => {
-                        if (!isActive) {
-                          const el = e.currentTarget
-                          el.style.background = 'rgba(255,255,255,.07)'
-                          el.style.borderColor = 'rgba(255,255,255,.12)'
-                        }
+                        if (cameraPanFree || isActive) return
+                        const el = e.currentTarget
+                        el.style.background = 'rgba(255,255,255,.07)'
+                        el.style.borderColor = 'rgba(255,255,255,.12)'
                       }}
                     >
                       {mode === 'rotate' ? <RotateGlyph className="h-3 w-3 shrink-0" /> : <MoveGlyph className="h-3 w-3 shrink-0" />}
@@ -700,13 +806,17 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
               }}
             >
               <span style={{ font: '500 14px/1 var(--font-sans)', color: 'rgba(255,255,255,.65)' }}>
-                {screenshot ? '+ replace screenshot' : '+ upload screenshot'}
+                {screenshot
+                  ? screenMediaKind === 'video'
+                    ? '+ replace video'
+                    : '+ replace screenshot'
+                  : '+ upload screenshot or video'}
               </span>
             </button>
             <input
               ref={fileRef}
               type="file"
-              accept="image/*"
+              accept="image/*,video/*"
               className="hidden"
               onChange={onUpload}
             />
@@ -714,7 +824,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
             {screenshot && (
               <button
                 type="button"
-                onClick={() => updateDevice(activeDevice.id, { screenshot: null, screenLoadError: null })}
+                onClick={clearActiveScreen}
                 className="-mt-2 self-center text-base opacity-70 hover:opacity-100 border-0 bg-transparent p-0 cursor-pointer"
                 style={{ font: '400 14px/1 var(--font-sans)', color: 'rgba(255,255,255,.5)' }}
               >
@@ -874,12 +984,75 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
               </p>
             </div>
 
+            <Field label="Canvas mode">
+              <p
+                className="mb-2 leading-snug"
+                style={{ font: '400 13px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}
+              >
+                {cameraPanFree
+                  ? 'Drag to look around (cinematographer). WASD + Space/Shift to move. Wheel zooms. Devices stay fixed.'
+                  : 'Drag on the canvas to rotate or move the active device. Shortcut: H camera · V device.'}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    { id: 'device' as const, label: 'Device', panFree: false },
+                    { id: 'camera' as const, label: 'Camera', panFree: true },
+                  ] as const
+                ).map(({ id, label, panFree }) => {
+                  const isActive = cameraPanFree === panFree
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setCameraPanFree(panFree)}
+                      style={
+                        isActive
+                          ? {
+                              background: 'rgba(110,75,255,.25)',
+                              border: '1px solid var(--accent)',
+                              color: '#fff',
+                              borderRadius: 'var(--radius-sm)',
+                            }
+                          : {
+                              background: 'rgba(255,255,255,.07)',
+                              border: '1px solid rgba(255,255,255,.12)',
+                              color: 'rgba(255,255,255,.65)',
+                              borderRadius: 'var(--radius-sm)',
+                            }
+                      }
+                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs transition"
+                      onMouseEnter={(e) => {
+                        if (isActive) return
+                        const el = e.currentTarget
+                        el.style.background = 'rgba(255,255,255,.12)'
+                        el.style.borderColor = 'rgba(255,255,255,.25)'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (isActive) return
+                        const el = e.currentTarget
+                        el.style.background = 'rgba(255,255,255,.07)'
+                        el.style.borderColor = 'rgba(255,255,255,.12)'
+                      }}
+                    >
+                      {id === 'camera' ? (
+                        <CameraNavGlyph className="h-3.5 w-3.5 shrink-0" />
+                      ) : (
+                        <PhoneGlyph className="h-3.5 w-3.5 shrink-0" />
+                      )}
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </Field>
+
             <Field label="Camera roll">
               <p
                 className="mb-2 leading-snug"
                 style={{ font: '400 13px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}
               >
-                Roll the view around the camera axis. Right-drag orbits; roll applies on top.
+                Roll the view around the camera axis. In camera mode, left-drag aims the view; roll applies on top.
               </p>
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {(
@@ -1184,6 +1357,18 @@ function ChevronRightGlyph({ className }: { className?: string }) {
   )
 }
 
+function CameraNavGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M4 8.5V6a2 2 0 0 1 2-2h2.5" strokeLinecap="round" />
+      <path d="M20 8.5V6a2 2 0 0 0-2-2h-2.5" strokeLinecap="round" />
+      <path d="M4 15.5V18a2 2 0 0 0 2 2h2.5" strokeLinecap="round" />
+      <path d="M20 15.5V18a2 2 0 0 1-2 2h-2.5" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
 function RotateGlyph({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -1221,6 +1406,62 @@ function readBlobAsDataUrl(blob: Blob): Promise<string> {
     reader.onload = () => resolve(reader.result as string)
     reader.onerror = () => reject(reader.error ?? new Error('read failed'))
     reader.readAsDataURL(blob)
+  })
+}
+
+const THUMBNAIL_TARGET_HEIGHT = 360
+const THUMBNAIL_JPEG_QUALITY = 0.82
+
+/**
+ * Renders the scene off-screen, crops the area covered by the side panel,
+ * and returns a small JPEG data URL. The crop matches the visible region
+ * the author sees in the studio so gallery previews reproduce that framing
+ * exactly (no canvas-aspect drift, no spinning device).
+ */
+async function captureProjectThumbnail(
+  bgColor: string,
+  viewportInsetRight: number,
+): Promise<string | null> {
+  const capture = useStore.getState().captureSceneAtSize
+  const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+  if (!capture || !canvas) return null
+  const fullW = canvas.clientWidth
+  const fullH = canvas.clientHeight
+  if (fullW <= 0 || fullH <= 0) return null
+
+  const visibleFrac = Math.max(0.1, Math.min(1, 1 - (viewportInsetRight || 0)))
+  const targetH = THUMBNAIL_TARGET_HEIGHT
+  const targetFullW = Math.max(1, Math.round((targetH * fullW) / fullH))
+  const targetVisibleW = Math.max(1, Math.round(targetFullW * visibleFrac))
+
+  let pngFull: string
+  try {
+    pngFull = capture(targetFullW, targetH, { bgCss: bgColor })
+  } catch (err) {
+    console.warn('Thumbnail capture failed', err)
+    return null
+  }
+
+  return new Promise<string | null>((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const c = document.createElement('canvas')
+      c.width = targetVisibleW
+      c.height = targetH
+      const ctx = c.getContext('2d')
+      if (!ctx) {
+        resolve(null)
+        return
+      }
+      ctx.drawImage(img, 0, 0)
+      try {
+        resolve(c.toDataURL('image/jpeg', THUMBNAIL_JPEG_QUALITY))
+      } catch {
+        resolve(null)
+      }
+    }
+    img.onerror = () => resolve(null)
+    img.src = pngFull
   })
 }
 

@@ -496,7 +496,17 @@ function BottomDetails() {
   )
 }
 
-export function PhoneProcedural({ screenshot, deviceColor }: { screenshot: string | null; deviceColor: string }) {
+export function PhoneProcedural({
+  deviceId,
+  screenshot,
+  screenMediaKind = null,
+  deviceColor,
+}: {
+  deviceId: string
+  screenshot: string | null
+  screenMediaKind?: import('./store').ScreenMediaKind | null
+  deviceColor: string
+}) {
   const frameMat = useFramePhysicalMaterial(deviceColor)
 
   // Bezel: outer rounded shape with inner hole (screen cutout)
@@ -530,7 +540,9 @@ export function PhoneProcedural({ screenshot, deviceColor }: { screenshot: strin
 
       {/* Screen image (just above body front, behind bezel) */}
       <ScreenshotPlane
+        deviceId={deviceId}
         screenshot={screenshot}
+        screenMediaKind={screenMediaKind}
         screenW={SCREEN_W}
         screenH={SCREEN_H}
         openingCornerR={SCREEN_OPENING_CORNER_R}

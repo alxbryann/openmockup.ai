@@ -19,10 +19,15 @@ export type Project = {
   createdAt: number
   updatedAt: number
   isPublic: boolean
+  /**
+   * Low-res JPEG data URL preview of the studio's visible viewport (panel area cropped out).
+   * Generated on autosave so gallery cards always show exactly what the author last saw.
+   */
+  thumbnail: string | null
   snapshot: ProjectSnapshot
 }
 
-export type ProjectSummary = Pick<Project, 'id' | 'name' | 'createdAt' | 'updatedAt' | 'isPublic'> & {
+export type ProjectSummary = Pick<Project, 'id' | 'name' | 'createdAt' | 'updatedAt' | 'isPublic' | 'thumbnail'> & {
   viewportAspect: number
   viewportInsetRight: number
 }
@@ -65,7 +70,9 @@ function defaultSnapshot(): ProjectSnapshot {
       {
         id: crypto.randomUUID(),
         screenshot: null,
+        screenMediaKind: null,
         screenLoadError: null,
+        videoStartTime: 0,
         deviceKind: 'phone',
         deviceColor: '#DFCEEA',
         deviceRotation: [0, 0, 0],
@@ -92,6 +99,7 @@ function summarize(p: Project): ProjectSummary {
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
     isPublic: p.isPublic,
+    thumbnail: p.thumbnail ?? null,
     viewportAspect: p.snapshot.viewportAspect ?? 1,
     viewportInsetRight: p.snapshot.viewportInsetRight ?? 0,
   }
@@ -129,6 +137,7 @@ class LocalProjectStore implements ProjectStore {
       createdAt: now,
       updatedAt: now,
       isPublic: true,
+      thumbnail: null,
       snapshot: snapshot ?? defaultSnapshot(),
     }
     idx.projects[project.id] = project

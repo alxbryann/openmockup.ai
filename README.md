@@ -10,7 +10,7 @@
 
 | | |
 | --- | --- |
-| **Pantalla** | Tu imagen mapeada sobre la pantalla del modelo 3D (JPEG, PNG y HEIC vía conversión en cliente). |
+| **Pantalla** | Imagen o video en la pantalla del modelo 3D (JPEG, PNG, HEIC; MP4/WebM en loop). |
 | **Dispositivo** | Color del chasis con swatches + selector libre. |
 | **Fondo** | Color sólido para el canvas; combina con el tono del mockup. |
 | **Cámara** | OrbitControls: arrastra para reencuadrar; zoom con límites suaves. |
@@ -49,7 +49,7 @@ npm run preview  # sirve el build local
 
 ## Uso
 
-1. **Upload screenshot** — elige la captura de tu app o diseño.  
+1. **Upload screenshot or video** — captura de app, diseño o clip (MP4/WebM).  
 2. Ajusta **color del dispositivo** y **fondo** hasta que cierre con tu marca.  
 3. Gira la vista con el mouse hasta el encuadre perfecto.  
 4. **Export PNG** — sin watermark; el archivo refleja exactamente lo que ves.

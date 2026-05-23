@@ -1,6 +1,14 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
-import { invalidate, useThree } from '@react-three/fiber'
+import { invalidate, useFrame, useThree } from '@react-three/fiber'
+import { useStore, type ScreenMediaKind } from './store'
+import {
+  SCREEN_VIDEO_LOAD_ERROR,
+  createScreenVideoElement,
+  disposeScreenVideo,
+  waitForVideoReady,
+} from './screenMedia'
+import { useApplyVideoStartTime, useDeviceScreenVideo } from './useDeviceScreenVideo'
 
 /**
  * `ShapeGeometry` in three@0.184 sets `uv` to raw vertex (x,y) — not [0,1]. Without this,
@@ -57,7 +65,9 @@ export function roundedRectShape(w: number, h: number, r: number): THREE.Shape {
 }
 
 export type ScreenshotPlaneProps = {
+  deviceId: string
   screenshot: string | null
+  screenMediaKind?: ScreenMediaKind | null
   /** Full opening width (matches bezel hole). */
   screenW: number
   screenH: number
@@ -79,9 +89,37 @@ export type ScreenshotPlaneProps = {
   onLoadError?: (msg: string | null) => void
 }
 
+function applyLoadedTexture(
+  mat: THREE.MeshBasicMaterial,
+  tex: THREE.Texture,
+  gl: THREE.WebGLRenderer,
+) {
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.wrapS = THREE.ClampToEdgeWrapping
+  tex.wrapT = THREE.ClampToEdgeWrapping
+  if (tex instanceof THREE.VideoTexture) {
+    tex.minFilter = THREE.LinearFilter
+    tex.magFilter = THREE.LinearFilter
+    tex.generateMipmaps = false
+  } else {
+    tex.minFilter = THREE.LinearMipmapLinearFilter
+    tex.magFilter = THREE.LinearFilter
+    tex.generateMipmaps = true
+    tex.anisotropy = Math.min(4, gl.capabilities.getMaxAnisotropy())
+  }
+  tex.needsUpdate = true
+  mat.map?.dispose()
+  mat.map = tex
+  mat.color.set(0xffffff)
+  mat.needsUpdate = true
+  invalidate()
+}
+
 /** R3F can reset `map` on reconciler passes; keep one THREE material and assign `map` imperatively. */
 export function ScreenshotPlane({
+  deviceId,
   screenshot,
+  screenMediaKind = null,
   screenW,
   screenH,
   openingCornerR,
@@ -104,6 +142,14 @@ export function ScreenshotPlane({
     [],
   )
   const gl = useThree((s) => s.gl)
+  const [screenVideo, setScreenVideo] = useState<HTMLVideoElement | null>(null)
+  const kind = screenshot ? (screenMediaKind ?? 'image') : null
+  const videoStartTime = useStore(
+    (s) => s.devices.find((d) => d.id === deviceId)?.videoStartTime ?? 0,
+  )
+
+  useDeviceScreenVideo(deviceId, kind === 'video' ? screenVideo : null)
+  useApplyVideoStartTime(deviceId, kind === 'video' ? screenVideo : null, videoStartTime)
 
   useEffect(() => {
     /* eslint-disable react-hooks/immutability */
@@ -112,11 +158,50 @@ export function ScreenshotPlane({
       mat.map = null
       mat.color.set(0x050505)
       mat.needsUpdate = true
+      disposeScreenVideo(screenVideo)
+      setScreenVideo(null)
       return
     }
 
     let cancelled = false
     queueMicrotask(() => onLoadError?.(null))
+
+    if (kind === 'video') {
+      const video = createScreenVideoElement(screenshot)
+      setScreenVideo(video)
+
+      waitForVideoReady(video)
+        .then(async () => {
+          if (cancelled) return
+          const start = useStore.getState().devices.find((d) => d.id === deviceId)?.videoStartTime ?? 0
+          if (Number.isFinite(video.duration) && video.duration > 0) {
+            video.currentTime = Math.min(start, Math.max(0, video.duration - 0.001))
+          }
+          await video.play().catch(() => {})
+          if (cancelled) return
+          const tex = new THREE.VideoTexture(video)
+          applyLoadedTexture(mat, tex, gl)
+          onLoadError?.(null)
+        })
+        .catch(() => {
+          if (cancelled) return
+          mat.map?.dispose()
+          mat.map = null
+          mat.color.set(0x050505)
+          mat.needsUpdate = true
+          onLoadError?.(SCREEN_VIDEO_LOAD_ERROR)
+        })
+
+      return () => {
+        cancelled = true
+        mat.map?.dispose()
+        mat.map = null
+        mat.color.set(0x050505)
+        mat.needsUpdate = true
+        disposeScreenVideo(video)
+        setScreenVideo(null)
+      }
+    }
 
     const loader = new THREE.TextureLoader()
     loader.load(
@@ -126,19 +211,7 @@ export function ScreenshotPlane({
           tex.dispose()
           return
         }
-        tex.colorSpace = THREE.SRGBColorSpace
-        tex.wrapS = THREE.ClampToEdgeWrapping
-        tex.wrapT = THREE.ClampToEdgeWrapping
-        tex.minFilter = THREE.LinearMipmapLinearFilter
-        tex.magFilter = THREE.LinearFilter
-        tex.generateMipmaps = true
-        tex.anisotropy = Math.min(4, gl.capabilities.getMaxAnisotropy())
-        tex.needsUpdate = true
-        mat.map?.dispose()
-        mat.map = tex
-        mat.color.set(0xffffff)
-        mat.needsUpdate = true
-        invalidate()
+        applyLoadedTexture(mat, tex, gl)
         onLoadError?.(null)
       },
       undefined,
@@ -162,14 +235,21 @@ export function ScreenshotPlane({
       mat.needsUpdate = true
     }
     /* eslint-enable react-hooks/immutability */
-  }, [screenshot, gl, mat, onLoadError])
+  }, [screenshot, kind, deviceId, gl, mat, onLoadError])
+
+  useFrame(() => {
+    if (kind !== 'video' || !(mat.map instanceof THREE.VideoTexture)) return
+    mat.map.needsUpdate = true
+    invalidate()
+  })
 
   useEffect(
     () => () => {
+      disposeScreenVideo(screenVideo)
       mat.map?.dispose()
       mat.dispose()
     },
-    [mat],
+    [mat, screenVideo],
   )
 
   const pw = Math.max(0.02, screenW - planeInset * 2)

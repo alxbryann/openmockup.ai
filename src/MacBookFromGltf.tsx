@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import { ScreenshotPlane } from './ScreenshotPlane'
+import type { ScreenMediaKind } from './store'
 
 const MODEL_URL = '/models/macbook/macbook.glb'
 
@@ -92,7 +93,17 @@ const _c = new THREE.Vector3()
 const _qWrap = new THREE.Quaternion()
 const _qMesh = new THREE.Quaternion()
 
-export function MacBookFromGltf({ screenshot, deviceColor }: { screenshot: string | null; deviceColor: string }) {
+export function MacBookFromGltf({
+  deviceId,
+  screenshot,
+  screenMediaKind = null,
+  deviceColor,
+}: {
+  deviceId: string
+  screenshot: string | null
+  screenMediaKind?: ScreenMediaKind | null
+  deviceColor: string
+}) {
   const { scene } = useGLTF(MODEL_URL)
   const wrapperRef = useRef<THREE.Group>(null)
   const screenOverlayRef = useRef<THREE.Group>(null)
@@ -230,7 +241,9 @@ export function MacBookFromGltf({ screenshot, deviceColor }: { screenshot: strin
           <group ref={screenOverlayRef} raycast={() => undefined}>
             {screenSpec ? (
               <ScreenshotPlane
+                deviceId={deviceId}
                 screenshot={screenshot}
+                screenMediaKind={screenMediaKind}
                 screenW={screenSpec.w}
                 screenH={screenSpec.h}
                 openingCornerR={screenSpec.r}

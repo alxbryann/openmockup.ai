@@ -9,6 +9,8 @@ export default function EmbedView({ projectId }: Props) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing'>('loading')
   const [project, setProject] = useState<Project | null>(null)
   const hydrate = useStore((s) => s.hydrateFromSnapshot)
+  const setAutoRotate = useStore((s) => s.setAutoRotate)
+  const setCameraPanFree = useStore((s) => s.setCameraPanFree)
 
   const isInIframe = typeof window !== 'undefined' && window.self !== window.top
 
@@ -21,13 +23,18 @@ export default function EmbedView({ projectId }: Props) {
         return
       }
       hydrate(p.snapshot)
+      // Freeze the preview at the saved pose so the gallery card matches
+      // the camera/device framing the author left in the studio. Without
+      // this, tickAutoRotate keeps spinning the device every frame.
+      setAutoRotate(false)
+      setCameraPanFree(false)
       setProject(p)
       setStatus('ready')
     })
     return () => {
       cancelled = true
     }
-  }, [projectId, hydrate])
+  }, [projectId, hydrate, setAutoRotate, setCameraPanFree])
 
   if (status === 'missing') {
     return (

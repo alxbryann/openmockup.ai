@@ -1,18 +1,15 @@
 import * as THREE from 'three'
 import type { ColorSpace } from 'three'
-import { isGradientBg, findGradientPreset, drawGradientToCtx } from './gradients'
+import { findGradientPreset, drawGradientToCtx } from './gradients'
 
-/**
- * Reads WebGL render target pixels and composites them over a gradient background.
- * Handles Y-flip (WebGL origin is bottom-left).
- */
-function compositeGradientWithRenderTarget(
+/** Reads WebGL render target pixels, flips Y, composites over bgCss. Returns HTMLCanvasElement. */
+function renderTargetToCanvas(
   gl: THREE.WebGLRenderer,
   rt: THREE.WebGLRenderTarget,
   width: number,
   height: number,
-  bgCss: string,
-): string {
+  bgCss?: string,
+): HTMLCanvasElement {
   const sceneBuf = new Uint8Array(width * height * 4)
   gl.readRenderTargetPixels(rt, 0, 0, width, height, sceneBuf)
 
@@ -22,63 +19,46 @@ function compositeGradientWithRenderTarget(
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('2D context unavailable')
 
-  const preset = findGradientPreset(bgCss)
-  if (preset) {
-    drawGradientToCtx(ctx, width, height, preset)
-  } else {
-    ctx.fillStyle = bgCss
-    ctx.fillRect(0, 0, width, height)
-  }
-
-  const gradData = ctx.getImageData(0, 0, width, height)
-  const gradBuf = gradData.data
-  const outData = ctx.createImageData(width, height)
-  const out = outData.data
-
   const rowBytes = width * 4
-  for (let y = 0; y < height; y++) {
-    const sceneRow = (height - 1 - y) * rowBytes
-    const otherRow = y * rowBytes
-    for (let x = 0; x < width; x++) {
-      const si = sceneRow + x * 4
-      const gi = otherRow + x * 4
-      const oi = otherRow + x * 4
-      const sa = sceneBuf[si + 3] / 255
-      out[oi]     = Math.round(sceneBuf[si]     * sa + gradBuf[gi]     * (1 - sa))
-      out[oi + 1] = Math.round(sceneBuf[si + 1] * sa + gradBuf[gi + 1] * (1 - sa))
-      out[oi + 2] = Math.round(sceneBuf[si + 2] * sa + gradBuf[gi + 2] * (1 - sa))
-      out[oi + 3] = 255
+
+  if (bgCss) {
+    const preset = findGradientPreset(bgCss)
+    if (preset) {
+      drawGradientToCtx(ctx, width, height, preset)
+    } else {
+      ctx.fillStyle = bgCss
+      ctx.fillRect(0, 0, width, height)
     }
+    const gradData = ctx.getImageData(0, 0, width, height)
+    const gradBuf = gradData.data
+    const outData = ctx.createImageData(width, height)
+    const out = outData.data
+    for (let y = 0; y < height; y++) {
+      const sceneRow = (height - 1 - y) * rowBytes
+      const otherRow = y * rowBytes
+      for (let x = 0; x < width; x++) {
+        const si = sceneRow + x * 4
+        const gi = otherRow + x * 4
+        const oi = otherRow + x * 4
+        const sa = sceneBuf[si + 3] / 255
+        out[oi]     = Math.round(sceneBuf[si]     * sa + gradBuf[gi]     * (1 - sa))
+        out[oi + 1] = Math.round(sceneBuf[si + 1] * sa + gradBuf[gi + 1] * (1 - sa))
+        out[oi + 2] = Math.round(sceneBuf[si + 2] * sa + gradBuf[gi + 2] * (1 - sa))
+        out[oi + 3] = 255
+      }
+    }
+    ctx.putImageData(outData, 0, 0)
+  } else {
+    const imageData = ctx.createImageData(width, height)
+    for (let y = 0; y < height; y++) {
+      const src = (height - 1 - y) * rowBytes
+      const dst = y * rowBytes
+      imageData.data.set(sceneBuf.subarray(src, src + rowBytes), dst)
+    }
+    ctx.putImageData(imageData, 0, 0)
   }
 
-  ctx.putImageData(outData, 0, 0)
-  return canvas.toDataURL('image/png')
-}
-
-/** Flip Y for canvas (WebGL origin bottom-left). */
-function readRenderTargetAsPng(
-  gl: THREE.WebGLRenderer,
-  rt: THREE.WebGLRenderTarget,
-  width: number,
-  height: number,
-): string {
-  const buf = new Uint8Array(width * height * 4)
-  gl.readRenderTargetPixels(rt, 0, 0, width, height, buf)
-
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('2D context unavailable')
-  const imageData = ctx.createImageData(width, height)
-  const rowBytes = width * 4
-  for (let y = 0; y < height; y++) {
-    const src = (height - 1 - y) * rowBytes
-    const dst = y * rowBytes
-    imageData.data.set(buf.subarray(src, src + rowBytes), dst)
-  }
-  ctx.putImageData(imageData, 0, 0)
-  return canvas.toDataURL('image/png')
+  return canvas
 }
 
 /**
@@ -92,29 +72,28 @@ export type CaptureSceneOptions = {
   bgCss?: string
 }
 
-export function captureSceneToPngDataUrl(
+function renderSceneOffscreen(
   gl: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
   width: number,
   height: number,
   options?: CaptureSceneOptions,
-): string {
+): HTMLCanvasElement {
   const transparent = options?.transparent === true
   const bgCss = options?.bgCss
-  const needsGradientComposite = !transparent && bgCss != null && isGradientBg(bgCss)
+  const needsBgComposite = !transparent && bgCss != null
 
   const prevBg = scene.background
   const prevClearColor = new THREE.Color()
   gl.getClearColor(prevClearColor)
   const prevClearAlpha = gl.getClearAlpha()
 
-  if (transparent || needsGradientComposite) {
+  if (transparent || needsBgComposite) {
     scene.background = null
     gl.setClearColor(0x000000, 0)
   }
 
-  // Detect WebGL2 for MSAA support — falls back to 0 samples on WebGL1.
   const ctx = gl.getContext()
   const isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && ctx instanceof WebGL2RenderingContext
   const maxSamples = isWebGL2
@@ -145,17 +124,37 @@ export function captureSceneToPngDataUrl(
     gl.setRenderTarget(prevTarget)
     gl.xr.enabled = prevXR
 
-    if (needsGradientComposite && bgCss) {
-      return compositeGradientWithRenderTarget(gl, rt, width, height, bgCss)
-    }
-    return readRenderTargetAsPng(gl, rt, width, height)
+    return renderTargetToCanvas(gl, rt, width, height, needsBgComposite ? bgCss : undefined)
   } finally {
-    if (transparent || needsGradientComposite) {
+    if (transparent || needsBgComposite) {
       scene.background = prevBg
       gl.setClearColor(prevClearColor, prevClearAlpha)
     }
     rt.dispose()
   }
+}
+
+export function captureSceneToPngDataUrl(
+  gl: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  camera: THREE.PerspectiveCamera,
+  width: number,
+  height: number,
+  options?: CaptureSceneOptions,
+): string {
+  return renderSceneOffscreen(gl, scene, camera, width, height, options).toDataURL('image/png')
+}
+
+/** Same as captureSceneToPngDataUrl but returns the HTMLCanvasElement directly — no PNG encoding. */
+export function captureSceneToCanvas(
+  gl: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  camera: THREE.PerspectiveCamera,
+  width: number,
+  height: number,
+  options?: CaptureSceneOptions,
+): HTMLCanvasElement {
+  return renderSceneOffscreen(gl, scene, camera, width, height, options)
 }
 
 /** Longest side = `longSide`, other dimension from viewport aspect (CSS pixels). */

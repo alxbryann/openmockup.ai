@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { exportPixelSize } from './highResCapture'
+import { CHROMA_KEY_GREEN } from './highResVideoExport'
 import {
   Scene,
   ORBIT_MAX_DISTANCE,
@@ -15,6 +16,16 @@ import { projectStore, snapshotFromStoreState, type Project } from './projectSto
 import { ProjectPicker } from './ProjectPicker'
 
 type AppProps = { initialProjectId?: string | null }
+
+/**
+ * What gets baked under the device in the exported PNG:
+ *  - `solid`        → current scene background (color or gradient)
+ *  - `green`        → flat chroma-key green for easy keying in editors
+ *  - `transparent`  → no fill, exports an alpha-channel PNG
+ */
+type PngBgMode = 'solid' | 'green' | 'transparent'
+
+type StudioSectionId = 'devices' | 'content' | 'design' | 'layout' | 'scene' | 'camera'
 
 const DEVICE_OPTIONS: { id: DeviceKind; label: string }[] = [
   { id: 'phone', label: 'Phone' },
@@ -281,9 +292,20 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
 
   const [exporting, setExporting] = useState(false)
   const [exportPreset, setExportPreset] = useState<ExportPreset>(3840)
-  const [exportTransparentBg, setExportTransparentBg] = useState(false)
+  const [pngBgMode, setPngBgMode] = useState<PngBgMode>('solid')
   const [exportError, setExportError] = useState<string | null>(null)
   const [studioReady, setStudioReady] = useState(false)
+  const [openSections, setOpenSections] = useState<Record<StudioSectionId, boolean>>({
+    devices: true,
+    content: true,
+    design: true,
+    layout: false,
+    scene: true,
+    camera: false,
+  })
+  const toggleSection = useCallback((id: StudioSectionId) => {
+    setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }))
+  }, [])
   const mountTimeRef = useRef(Date.now())
 
   const handleSceneReady = useCallback(() => {
@@ -334,6 +356,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
       screenMediaKind: null,
       screenLoadError: null,
       videoStartTime: 0,
+      videoEndTime: null,
     })
   }
 
@@ -352,6 +375,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         screenshot: objectUrl,
         screenMediaKind: 'video',
         videoStartTime: 0,
+        videoEndTime: null,
       })
       return
     }
@@ -392,15 +416,16 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
       try {
         const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
         if (!canvas) {
-          setExportError('3D canvas not found.')
+          setExportError('No se encontró el canvas 3D.')
           return
         }
         const capture = useStore.getState().captureSceneAtSize
         let dataUrl: string
-        const needOffscreen = exportTransparentBg || exportPreset !== 'screen'
+        // Anything other than a solid current-bg @ screen size needs the offscreen path.
+        const needOffscreen = pngBgMode !== 'solid' || exportPreset !== 'screen'
         if (needOffscreen) {
           if (!capture) {
-            setExportError('Scene not ready. Wait a moment and try again.')
+            setExportError('La escena aún no está lista. Espera un momento y vuelve a intentarlo.')
             return
           }
           const { w, h } =
@@ -411,21 +436,27 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
           if (gl) {
             const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number
             if (w > maxTex || h > maxTex) {
-              setExportError(`This GPU supports at most ${maxTex}px per side. Pick another resolution.`)
+              setExportError(`Tu GPU soporta hasta ${maxTex}px por lado. Elige otra resolución.`)
               return
             }
           }
-          dataUrl = capture(w, h, exportTransparentBg ? { transparent: true } : { bgCss: bgColor })
+          const captureOpts =
+            pngBgMode === 'transparent'
+              ? { transparent: true }
+              : pngBgMode === 'green'
+                ? { bgCss: CHROMA_KEY_GREEN }
+                : { bgCss: bgColor }
+          dataUrl = capture(w, h, captureOpts)
         } else {
           dataUrl = canvas.toDataURL('image/png')
         }
         const link = document.createElement('a')
-        link.download = `mockit-${Date.now()}.png`
+        link.download = `openmockup-${Date.now()}.png`
         link.href = dataUrl
         link.click()
       } catch (err) {
         console.error(err)
-        setExportError('Export failed. Try "Screen" or a lower resolution.')
+        setExportError('Error al exportar. Prueba con "Pantalla" o una resolución más baja.')
       } finally {
         setExporting(false)
       }
@@ -624,270 +655,176 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
             </button>
           </div>
 
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-1.5">
 
-            {/* Device selector */}
-            <Field label="Devices">
+            {/* 1 · DEVICES — choose / add / remove */}
+            <Section
+              id="devices"
+              title="Dispositivos"
+              icon={<DeviceStackGlyph className="h-3.5 w-3.5 shrink-0" />}
+              hint={`${devices.length} en escena`}
+              open={openSections.devices}
+              onToggle={() => toggleSection('devices')}
+            >
+              <SubLabel>Activo</SubLabel>
               <div className="flex flex-wrap items-center gap-1.5">
-                {devices.map((d, i) => {
-                  const isActive = d.id === activeDeviceId
-                  return (
-                    <button
-                      key={d.id}
-                      type="button"
-                      onClick={() => setActiveDeviceId(d.id)}
-                      style={isActive ? {
-                        background: 'rgba(110,75,255,.25)',
-                        border: '1px solid var(--accent)',
-                        color: '#fff',
-                        borderRadius: 'var(--radius-sm)',
-                      } : {
-                        background: 'rgba(255,255,255,.07)',
-                        border: '1px solid rgba(255,255,255,.12)',
-                        color: 'rgba(255,255,255,.65)',
-                        borderRadius: 'var(--radius-sm)',
-                      }}
-                      className="px-3 py-1.5 text-xs transition"
-                      onMouseEnter={(e) => {
-                        if (!isActive) {
-                          const el = e.currentTarget
-                          el.style.background = 'rgba(255,255,255,.12)'
-                          el.style.borderColor = 'rgba(255,255,255,.25)'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive) {
-                          const el = e.currentTarget
-                          el.style.background = 'rgba(255,255,255,.07)'
-                          el.style.borderColor = 'rgba(255,255,255,.12)'
-                        }
-                      }}
-                    >
-                      {i + 1}
-                    </button>
-                  )
-                })}
-                <button
-                  type="button"
-                  onClick={() => addDevice('phone')}
-                  title="Add iPhone"
-                  style={{
-                    background: 'rgba(255,255,255,.07)',
-                    border: '1px solid rgba(255,255,255,.12)',
-                    color: 'rgba(255,255,255,.65)',
-                    borderRadius: 'var(--radius-sm)',
-                  }}
-                  className="px-3 py-1.5 text-xs transition"
-                  onMouseEnter={(e) => {
-                    const el = e.currentTarget
-                    el.style.background = 'rgba(255,255,255,.12)'
-                    el.style.borderColor = 'rgba(255,255,255,.25)'
-                  }}
-                  onMouseLeave={(e) => {
-                    const el = e.currentTarget
-                    el.style.background = 'rgba(255,255,255,.07)'
-                    el.style.borderColor = 'rgba(255,255,255,.12)'
-                  }}
-                >
-                  + Phone
-                </button>
-                <button
-                  type="button"
-                  onClick={() => addDevice('mac')}
-                  title="Add MacBook"
-                  style={{
-                    background: 'rgba(255,255,255,.07)',
-                    border: '1px solid rgba(255,255,255,.12)',
-                    color: 'rgba(255,255,255,.65)',
-                    borderRadius: 'var(--radius-sm)',
-                  }}
-                  className="px-3 py-1.5 text-xs transition"
-                  onMouseEnter={(e) => {
-                    const el = e.currentTarget
-                    el.style.background = 'rgba(255,255,255,.12)'
-                    el.style.borderColor = 'rgba(255,255,255,.25)'
-                  }}
-                  onMouseLeave={(e) => {
-                    const el = e.currentTarget
-                    el.style.background = 'rgba(255,255,255,.07)'
-                    el.style.borderColor = 'rgba(255,255,255,.12)'
-                  }}
-                >
-                  + Mac
-                </button>
+                {devices.map((d, i) => (
+                  <Pill
+                    key={d.id}
+                    active={d.id === activeDeviceId}
+                    onClick={() => setActiveDeviceId(d.id)}
+                  >
+                    {i + 1}
+                  </Pill>
+                ))}
+                <Pill onClick={() => addDevice('phone')} title="Añadir iPhone">+ Phone</Pill>
+                <Pill onClick={() => addDevice('mac')} title="Añadir MacBook">+ Mac</Pill>
               </div>
-              {/* Rotate / Move toggle (device canvas mode only) */}
-              <div className="mt-2 flex items-center gap-1.5">
+
+              <SubLabel className="mt-3">Arrastre del dispositivo</SubLabel>
+              <div className="flex items-center gap-1.5">
                 {(['rotate', 'move'] as const).map((mode) => {
                   const isActive = deviceDragMode === mode
+                  const disabled = cameraPanFree
                   return (
-                    <button
+                    <Pill
                       key={mode}
-                      type="button"
-                      disabled={cameraPanFree}
+                      active={isActive}
+                      disabled={disabled}
                       onClick={() => setDeviceDragMode(mode)}
-                      style={
-                        cameraPanFree
-                          ? {
-                              background: 'rgba(255,255,255,.04)',
-                              border: '1px solid rgba(255,255,255,.08)',
-                              color: 'rgba(255,255,255,.28)',
-                              borderRadius: 'var(--radius-sm)',
-                              cursor: 'not-allowed',
-                            }
-                          : isActive
-                            ? {
-                                background: 'rgba(110,75,255,.25)',
-                                border: '1px solid var(--accent)',
-                                color: '#fff',
-                                borderRadius: 'var(--radius-sm)',
-                              }
-                            : {
-                                background: 'rgba(255,255,255,.07)',
-                                border: '1px solid rgba(255,255,255,.12)',
-                                color: 'rgba(255,255,255,.65)',
-                                borderRadius: 'var(--radius-sm)',
-                              }
-                      }
-                      className="flex items-center gap-1 px-2.5 py-1 text-xs transition"
-                      onMouseEnter={(e) => {
-                        if (cameraPanFree || isActive) return
-                        if (!isActive) {
-                          const el = e.currentTarget
-                          el.style.background = 'rgba(255,255,255,.12)'
-                          el.style.borderColor = 'rgba(255,255,255,.25)'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (cameraPanFree || isActive) return
-                        const el = e.currentTarget
-                        el.style.background = 'rgba(255,255,255,.07)'
-                        el.style.borderColor = 'rgba(255,255,255,.12)'
-                      }}
+                      className="flex items-center gap-1"
                     >
-                      {mode === 'rotate' ? <RotateGlyph className="h-3 w-3 shrink-0" /> : <MoveGlyph className="h-3 w-3 shrink-0" />}
-                      {mode === 'rotate' ? 'Rotate' : 'Move'}
-                    </button>
+                      {mode === 'rotate'
+                        ? <RotateGlyph className="h-3 w-3 shrink-0" />
+                        : <MoveGlyph className="h-3 w-3 shrink-0" />}
+                      {mode === 'rotate' ? 'Rotar' : 'Mover'}
+                    </Pill>
                   )
                 })}
               </div>
+              {cameraPanFree && (
+                <p
+                  className="mt-1.5"
+                  style={{ font: '400 11px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}
+                >
+                  Cambia a modo "Dispositivo" en la sección Cámara para usar arrastre.
+                </p>
+              )}
 
               {devices.length > 1 && (
                 <button
                   type="button"
                   onClick={() => removeDevice(activeDevice.id)}
-                  className="mt-1.5 text-[11px] opacity-60 hover:opacity-100 transition border-0 bg-transparent p-0 cursor-pointer"
-                  style={{ color: 'rgba(255,255,255,.5)' }}
+                  className="mt-3 text-[11px] opacity-60 hover:opacity-100 transition border-0 bg-transparent p-0 cursor-pointer self-start"
+                  style={{ color: 'rgba(255,160,180,.85)' }}
                 >
-                  Remove device {devices.findIndex((d) => d.id === activeDeviceId) + 1}
+                  ✕ Eliminar dispositivo {devices.findIndex((d) => d.id === activeDeviceId) + 1}
                 </button>
               )}
-            </Field>
+            </Section>
 
-            {/* Screenshot upload for active device */}
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="flex w-full cursor-pointer flex-col items-center justify-center py-7 transition"
-              style={{
-                border: '2px dashed rgba(110,75,255,.4)',
-                borderRadius: 'var(--radius)',
-                color: 'rgba(255,255,255,.65)',
-              }}
-              onMouseEnter={(e) => {
-                const el = e.currentTarget
-                el.style.borderColor = 'rgba(110,75,255,.7)'
-                el.style.background = 'rgba(110,75,255,.06)'
-              }}
-              onMouseLeave={(e) => {
-                const el = e.currentTarget
-                el.style.borderColor = 'rgba(110,75,255,.4)'
-                el.style.background = 'transparent'
-              }}
+            {/* 2 · CONTENT — image or video for active device */}
+            <Section
+              id="content"
+              title="Contenido en pantalla"
+              icon={<UploadGlyph className="h-3.5 w-3.5 shrink-0" />}
+              hint={
+                screenshot
+                  ? screenMediaKind === 'video' ? 'Video' : 'Imagen'
+                  : 'Vacío'
+              }
+              open={openSections.content}
+              onToggle={() => toggleSection('content')}
             >
-              <span style={{ font: '500 14px/1 var(--font-sans)', color: 'rgba(255,255,255,.65)' }}>
-                {screenshot
-                  ? screenMediaKind === 'video'
-                    ? '+ replace video'
-                    : '+ replace screenshot'
-                  : '+ upload screenshot or video'}
-              </span>
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*,video/*"
-              className="hidden"
-              onChange={onUpload}
-            />
-
-            {screenshot && (
               <button
                 type="button"
-                onClick={clearActiveScreen}
-                className="-mt-2 self-center text-base opacity-70 hover:opacity-100 border-0 bg-transparent p-0 cursor-pointer"
-                style={{ font: '400 14px/1 var(--font-sans)', color: 'rgba(255,255,255,.5)' }}
+                onClick={() => fileRef.current?.click()}
+                className="flex w-full cursor-pointer flex-col items-center justify-center gap-1 py-5 transition"
+                style={{
+                  border: '2px dashed rgba(110,75,255,.4)',
+                  borderRadius: 'var(--radius)',
+                  color: 'rgba(255,255,255,.65)',
+                }}
+                onMouseEnter={(e) => {
+                  const el = e.currentTarget
+                  el.style.borderColor = 'rgba(110,75,255,.7)'
+                  el.style.background = 'rgba(110,75,255,.06)'
+                }}
+                onMouseLeave={(e) => {
+                  const el = e.currentTarget
+                  el.style.borderColor = 'rgba(110,75,255,.4)'
+                  el.style.background = 'transparent'
+                }}
               >
-                Clear
+                <span style={{ font: '500 13px/1 var(--font-sans)', color: 'rgba(255,255,255,.7)' }}>
+                  {screenshot
+                    ? screenMediaKind === 'video'
+                      ? '+ Reemplazar video'
+                      : '+ Reemplazar imagen'
+                    : '+ Subir imagen o video'}
+                </span>
+                <span style={{ font: '400 10px/1.3 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}>
+                  PNG · JPG · HEIC · MP4 · MOV · WebM
+                </span>
               </button>
-            )}
-            {screenLoadError && (
-              <p className="text-xs leading-relaxed text-amber-600 dark:text-amber-400/90">{screenLoadError}</p>
-            )}
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*,video/*"
+                className="hidden"
+                onChange={onUpload}
+              />
 
-            <Field label="Device type">
+              {screenshot && (
+                <button
+                  type="button"
+                  onClick={clearActiveScreen}
+                  className="mt-2 self-center text-xs opacity-70 hover:opacity-100 border-0 bg-transparent p-0 cursor-pointer"
+                  style={{ font: '400 12px/1 var(--font-sans)', color: 'rgba(255,255,255,.55)' }}
+                >
+                  Quitar contenido
+                </button>
+              )}
+              {screenLoadError && (
+                <p className="mt-2 text-xs leading-relaxed text-amber-600 dark:text-amber-400/90">
+                  {screenLoadError}
+                </p>
+              )}
+            </Section>
+
+            {/* 3 · DESIGN — device type + color */}
+            <Section
+              id="design"
+              title="Diseño del dispositivo"
+              icon={<PaletteGlyph className="h-3.5 w-3.5 shrink-0" />}
+              hint={deviceKind === 'phone' ? 'iPhone' : 'MacBook'}
+              open={openSections.design}
+              onToggle={() => toggleSection('design')}
+            >
+              <SubLabel>Tipo</SubLabel>
               <div className="flex flex-wrap gap-1.5">
-                {DEVICE_OPTIONS.map(({ id, label }) => {
-                  const on = deviceKind === id
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => {
-                        updateDevice(activeDevice.id, { deviceKind: id })
-                        resetDeviceRotation(activeDevice.id)
-                      }}
-                      style={on ? {
-                        background: 'rgba(110,75,255,.25)',
-                        border: '1px solid var(--accent)',
-                        color: '#fff',
-                        borderRadius: 'var(--radius-sm)',
-                      } : {
-                        background: 'rgba(255,255,255,.07)',
-                        border: '1px solid rgba(255,255,255,.12)',
-                        color: 'rgba(255,255,255,.65)',
-                        borderRadius: 'var(--radius-sm)',
-                      }}
-                      className="px-3 py-2 text-xs transition"
-                      onMouseEnter={(e) => {
-                        if (!on) {
-                          const el = e.currentTarget
-                          el.style.background = 'rgba(255,255,255,.12)'
-                          el.style.borderColor = 'rgba(255,255,255,.25)'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!on) {
-                          const el = e.currentTarget
-                          el.style.background = 'rgba(255,255,255,.07)'
-                          el.style.borderColor = 'rgba(255,255,255,.12)'
-                        }
-                      }}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
+                {DEVICE_OPTIONS.map(({ id, label }) => (
+                  <Pill
+                    key={id}
+                    active={deviceKind === id}
+                    onClick={() => {
+                      updateDevice(activeDevice.id, { deviceKind: id })
+                      resetDeviceRotation(activeDevice.id)
+                    }}
+                    className="px-3 py-2"
+                  >
+                    {label}
+                  </Pill>
+                ))}
               </div>
-            </Field>
 
-            <Field label="Device color">
+              <SubLabel className="mt-3">Color</SubLabel>
               <div className="flex flex-col gap-3">
                 {DEVICE_COLOR_GROUPS.map((group) => (
                   <div key={group.label}>
                     <p
                       className="mb-1.5"
-                      style={{ font: '400 10px/1 var(--font-sans)', color: 'rgba(255,255,255,.35)', letterSpacing: '0.04em' }}
+                      style={{ font: '400 10px/1 var(--font-sans)', color: 'rgba(255,255,255,.4)', letterSpacing: '0.04em' }}
                     >
                       {group.label}
                     </p>
@@ -915,28 +852,102 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   </div>
                 ))}
               </div>
-            </Field>
+            </Section>
 
-            {devices.length > 1 && (
-              <Field label="Position X">
-                <label className="flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
-                  <span className="w-12 shrink-0 tabular-nums">
-                    {activeDevice.positionX > 0 ? '+' : ''}{Math.round(activeDevice.positionX)}
-                  </span>
-                  <input
-                    type="range"
-                    min={-40}
-                    max={40}
-                    step={0.5}
-                    value={activeDevice.positionX}
-                    onChange={(e) => updateDevice(activeDevice.id, { positionX: Number(e.target.value) })}
-                    className="min-w-0 flex-1 accent-[var(--accent)]"
-                  />
-                </label>
-              </Field>
-            )}
+            {/* 4 · LAYOUT — position + rotation */}
+            <Section
+              id="layout"
+              title="Posición y rotación"
+              icon={<MoveGlyph className="h-3.5 w-3.5 shrink-0" />}
+              open={openSections.layout}
+              onToggle={() => toggleSection('layout')}
+            >
+              {devices.length > 1 && (
+                <>
+                  <SubLabel>Posición X</SubLabel>
+                  <label className="flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
+                    <span className="w-12 shrink-0 tabular-nums">
+                      {activeDevice.positionX > 0 ? '+' : ''}{Math.round(activeDevice.positionX)}
+                    </span>
+                    <input
+                      type="range"
+                      min={-40}
+                      max={40}
+                      step={0.5}
+                      value={activeDevice.positionX}
+                      onChange={(e) => updateDevice(activeDevice.id, { positionX: Number(e.target.value) })}
+                      className="min-w-0 flex-1 accent-[var(--accent)]"
+                    />
+                  </label>
+                </>
+              )}
 
-            <Field label="Background">
+              <SubLabel className={devices.length > 1 ? 'mt-3' : ''}>
+                Rotación · dispositivo {devices.findIndex((d) => d.id === activeDeviceId) + 1}
+              </SubLabel>
+              <p
+                className="mb-2 leading-snug"
+                style={{ font: '400 11px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}
+              >
+                Arrastra sobre el canvas para ajustar; Shift+arrastre = Z.
+              </p>
+              {(
+                [
+                  { axis: 0 as const, title: 'X', hint: 'frente ↔ atrás' },
+                  { axis: 1 as const, title: 'Y', hint: 'plato giratorio' },
+                  { axis: 2 as const, title: 'Z', hint: 'inclinación lateral' },
+                ] as const
+              ).map(({ axis, title, hint }) => {
+                const rad = deviceRotation[axis]
+                const deg = Math.round((rad * 180) / Math.PI)
+                return (
+                  <label
+                    key={axis}
+                    className="mb-2 flex flex-col gap-0.5 text-xs last:mb-0"
+                    style={{ color: 'rgba(255,255,255,.5)' }}
+                  >
+                    <span>
+                      <span style={{ color: 'rgba(255,255,255,.85)', fontWeight: 600 }}>{title}</span>
+                      <span style={{ color: 'rgba(255,255,255,.4)' }}> · {hint}</span>
+                    </span>
+                    <span className="flex items-center gap-3">
+                      <span className="w-12 shrink-0 tabular-nums">{deg}°</span>
+                      <input
+                        type="range"
+                        min={-180}
+                        max={180}
+                        step={1}
+                        value={deg}
+                        onChange={(e) =>
+                          setDeviceRotationAxis(
+                            activeDevice.id,
+                            axis,
+                            (Number(e.target.value) * Math.PI) / 180,
+                          )
+                        }
+                        className="min-w-0 flex-1 accent-[var(--accent)]"
+                      />
+                    </span>
+                  </label>
+                )
+              })}
+              <Pill
+                onClick={() => resetDeviceRotation(activeDevice.id)}
+                className="mt-2 self-start px-2.5 py-1"
+              >
+                Reset XYZ
+              </Pill>
+            </Section>
+
+            {/* 5 · SCENE — background + ambient motion */}
+            <Section
+              id="scene"
+              title="Escena"
+              icon={<SunGlyph className="h-3.5 w-3.5 shrink-0" />}
+              open={openSections.scene}
+              onToggle={() => toggleSection('scene')}
+            >
+              <SubLabel>Fondo</SubLabel>
               <ColorRow value={bgColor} onChange={setBgColor} swatches={[...BG_SWATCHES]} />
               <div className="mt-2 flex flex-wrap gap-2">
                 {GRADIENT_PRESETS.map((g) => {
@@ -960,12 +971,15 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   )
                 })}
               </div>
-            </Field>
 
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between gap-3">
-                <span style={{ font: '500 13px/1 var(--font-sans)', color: 'rgba(255,255,255,.8)' }}>
-                  auto-rotate
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <span className="flex flex-col">
+                  <span style={{ font: '500 13px/1 var(--font-sans)', color: 'rgba(255,255,255,.85)' }}>
+                    Auto-rotar
+                  </span>
+                  <span className="mt-0.5" style={{ font: '400 11px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}>
+                    Gira lento todos los dispositivos (eje Y)
+                  </span>
                 </span>
                 <button
                   type="button"
@@ -979,81 +993,46 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   </span>
                 </button>
               </div>
-              <p style={{ font: '400 11px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}>
-                Slowly spins all devices (Y / turntable).
-              </p>
-            </div>
+            </Section>
 
-            <Field label="Canvas mode">
+            {/* 6 · CAMERA — interaction mode + roll */}
+            <Section
+              id="camera"
+              title="Cámara"
+              icon={<CameraNavGlyph className="h-3.5 w-3.5 shrink-0" />}
+              hint={cameraPanFree ? 'Cámara libre' : 'Dispositivo'}
+              open={openSections.camera}
+              onToggle={() => toggleSection('camera')}
+            >
+              <SubLabel>Modo (canvas)</SubLabel>
               <p
                 className="mb-2 leading-snug"
-                style={{ font: '400 13px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}
+                style={{ font: '400 11px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}
               >
                 {cameraPanFree
-                  ? 'Drag to look around (cinematographer). WASD + Space/Shift to move. Wheel zooms. Devices stay fixed.'
-                  : 'Drag on the canvas to rotate or move the active device. Shortcut: H camera · V device.'}
+                  ? 'Arrastra para mirar alrededor. WASD + Espacio/Shift para volar. Atajo: H'
+                  : 'Arrastra para rotar/mover el dispositivo activo. Atajo: V'}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {(
                   [
-                    { id: 'device' as const, label: 'Device', panFree: false },
-                    { id: 'camera' as const, label: 'Camera', panFree: true },
+                    { id: 'device' as const, label: 'Dispositivo', panFree: false, icon: <PhoneGlyph className="h-3.5 w-3.5 shrink-0" /> },
+                    { id: 'camera' as const, label: 'Cámara libre', panFree: true, icon: <CameraNavGlyph className="h-3.5 w-3.5 shrink-0" /> },
                   ] as const
-                ).map(({ id, label, panFree }) => {
-                  const isActive = cameraPanFree === panFree
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setCameraPanFree(panFree)}
-                      style={
-                        isActive
-                          ? {
-                              background: 'rgba(110,75,255,.25)',
-                              border: '1px solid var(--accent)',
-                              color: '#fff',
-                              borderRadius: 'var(--radius-sm)',
-                            }
-                          : {
-                              background: 'rgba(255,255,255,.07)',
-                              border: '1px solid rgba(255,255,255,.12)',
-                              color: 'rgba(255,255,255,.65)',
-                              borderRadius: 'var(--radius-sm)',
-                            }
-                      }
-                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs transition"
-                      onMouseEnter={(e) => {
-                        if (isActive) return
-                        const el = e.currentTarget
-                        el.style.background = 'rgba(255,255,255,.12)'
-                        el.style.borderColor = 'rgba(255,255,255,.25)'
-                      }}
-                      onMouseLeave={(e) => {
-                        if (isActive) return
-                        const el = e.currentTarget
-                        el.style.background = 'rgba(255,255,255,.07)'
-                        el.style.borderColor = 'rgba(255,255,255,.12)'
-                      }}
-                    >
-                      {id === 'camera' ? (
-                        <CameraNavGlyph className="h-3.5 w-3.5 shrink-0" />
-                      ) : (
-                        <PhoneGlyph className="h-3.5 w-3.5 shrink-0" />
-                      )}
-                      {label}
-                    </button>
-                  )
-                })}
+                ).map(({ id, label, panFree, icon }) => (
+                  <Pill
+                    key={id}
+                    active={cameraPanFree === panFree}
+                    onClick={() => setCameraPanFree(panFree)}
+                    className="flex items-center gap-1 px-2.5 py-1.5"
+                  >
+                    {icon}
+                    {label}
+                  </Pill>
+                ))}
               </div>
-            </Field>
 
-            <Field label="Camera roll">
-              <p
-                className="mb-2 leading-snug"
-                style={{ font: '400 13px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}
-              >
-                Roll the view around the camera axis. In camera mode, left-drag aims the view; roll applies on top.
-              </p>
+              <SubLabel className="mt-3">Inclinación (roll)</SubLabel>
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {(
                   [
@@ -1062,44 +1041,16 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                     { rad: Math.PI, label: '180°' },
                     { rad: -Math.PI / 2, label: '270°' },
                   ] as const
-                ).map(({ rad, label }) => {
-                  const on = Math.abs(cameraRoll - rad) < 0.02
-                  return (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => setCameraRoll(rad)}
-                      style={on ? {
-                        background: 'rgba(110,75,255,.25)',
-                        border: '1px solid var(--accent)',
-                        color: '#fff',
-                        borderRadius: 'var(--radius-sm)',
-                      } : {
-                        background: 'rgba(255,255,255,.07)',
-                        border: '1px solid rgba(255,255,255,.12)',
-                        color: 'rgba(255,255,255,.65)',
-                        borderRadius: 'var(--radius-sm)',
-                      }}
-                      className="px-2.5 py-1 text-xs transition"
-                      onMouseEnter={(e) => {
-                        if (!on) {
-                          const el = e.currentTarget
-                          el.style.background = 'rgba(255,255,255,.12)'
-                          el.style.borderColor = 'rgba(255,255,255,.25)'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!on) {
-                          const el = e.currentTarget
-                          el.style.background = 'rgba(255,255,255,.07)'
-                          el.style.borderColor = 'rgba(255,255,255,.12)'
-                        }
-                      }}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
+                ).map(({ rad, label }) => (
+                  <Pill
+                    key={label}
+                    active={Math.abs(cameraRoll - rad) < 0.02}
+                    onClick={() => setCameraRoll(rad)}
+                    className="px-2.5 py-1"
+                  >
+                    {label}
+                  </Pill>
+                ))}
               </div>
               <label className="flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
                 <span className="w-12 shrink-0 tabular-nums">
@@ -1115,191 +1066,124 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   className="min-w-0 flex-1 accent-[var(--accent)]"
                 />
               </label>
-            </Field>
+            </Section>
 
-            <Field label="Device rotation">
-              <p
-                className="mb-2 leading-snug"
-                style={{ font: '400 13px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}
-              >
-                Euler XYZ for device {devices.findIndex((d) => d.id === activeDeviceId) + 1}. Left-drag to adjust; Shift+drag for Z.
-              </p>
-              {(
-                [
-                  { axis: 0 as const, title: 'X axis', hint: 'front ↔ back' },
-                  { axis: 1 as const, title: 'Y axis', hint: 'turntable' },
-                  { axis: 2 as const, title: 'Z axis', hint: 'side tilt' },
-                ] as const
-              ).map(({ axis, title, hint }) => {
-                const rad = deviceRotation[axis]
-                const deg = Math.round((rad * 180) / Math.PI)
-                return (
-                  <label
-                    key={axis}
-                    className="mb-3 flex flex-col gap-1 text-xs last:mb-0"
-                    style={{ color: 'rgba(255,255,255,.5)' }}
+            {/* 7 · EXPORT — primary CTA, always visible */}
+            <div
+              className="mt-2 rounded-2xl p-4"
+              style={{
+                background: 'linear-gradient(180deg, rgba(110,75,255,.10), rgba(110,75,255,.04))',
+                border: '1px solid rgba(110,75,255,.25)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,.06)',
+              }}
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <DownloadGlyph className="h-4 w-4 shrink-0" style={{ color: 'var(--accent)' }} />
+                <h2
+                  style={{
+                    font: '700 12px/1 var(--font-sans)',
+                    letterSpacing: '0.02em',
+                    color: 'rgba(255,255,255,.95)',
+                    margin: 0,
+                  }}
+                >
+                  Exportar imagen (PNG)
+                </h2>
+              </div>
+
+              {screenMediaKind === 'video' && (
+                <p
+                  className="mb-3 rounded-md px-2.5 py-1.5"
+                  style={{
+                    font: '400 11px/1.4 var(--font-sans)',
+                    color: 'rgba(180,160,255,.95)',
+                    background: 'rgba(110,75,255,.12)',
+                    border: '1px solid rgba(110,75,255,.22)',
+                  }}
+                >
+                  Para exportar el clip de video usa el panel inferior ↓
+                </p>
+              )}
+
+              <SubLabel>Resolución</SubLabel>
+              <div className="mb-2 grid grid-cols-2 gap-1.5">
+                {EXPORT_PRESETS.map(({ id, label }) => (
+                  <Pill
+                    key={String(id)}
+                    active={exportPreset === id}
+                    onClick={() => {
+                      setExportPreset(id)
+                      setExportError(null)
+                    }}
+                    className="justify-center py-2"
                   >
-                    <span>
-                      <span style={{ color: 'rgba(255,255,255,.9)', fontWeight: 500 }}>
-                        {title}
-                      </span>
-                      <span style={{ color: 'rgba(255,255,255,.45)' }}> — {hint}</span>
-                    </span>
-                    <span className="flex items-center gap-3">
-                      <span className="w-12 shrink-0 tabular-nums">{deg}°</span>
-                      <input
-                        type="range"
-                        min={-180}
-                        max={180}
-                        step={1}
-                        value={deg}
-                        onChange={(e) =>
-                          setDeviceRotationAxis(
-                            activeDevice.id,
-                            axis,
-                            (Number(e.target.value) * Math.PI) / 180,
-                          )
-                        }
-                        className="min-w-0 flex-1 accent-[var(--accent)]"
-                      />
-                    </span>
-                  </label>
-                )
-              })}
-              <button
-                type="button"
-                onClick={() => resetDeviceRotation(activeDevice.id)}
-                style={{
-                  background: 'rgba(255,255,255,.07)',
-                  border: '1px solid rgba(255,255,255,.12)',
-                  color: 'rgba(255,255,255,.65)',
-                  borderRadius: 'var(--radius-sm)',
-                }}
-                className="mt-2 px-2.5 py-1 text-xs transition"
-                onMouseEnter={(e) => {
-                  const el = e.currentTarget
-                  el.style.background = 'rgba(255,255,255,.12)'
-                  el.style.borderColor = 'rgba(255,255,255,.25)'
-                }}
-                onMouseLeave={(e) => {
-                  const el = e.currentTarget
-                  el.style.background = 'rgba(255,255,255,.07)'
-                  el.style.borderColor = 'rgba(255,255,255,.12)'
-                }}
-              >
-                Reset XYZ
-              </button>
-            </Field>
-
-            <div className="pt-1">
-              <p
-                className="mb-2"
-                style={{
-                  font: '600 10px/1 var(--font-sans)',
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                  color: 'rgba(255,255,255,.4)',
-                }}
-              >
-                Export resolution
-              </p>
-              <div className="mb-3 grid grid-cols-2 gap-2">
-                {EXPORT_PRESETS.map(({ id, label }) => {
-                  const on = exportPreset === id
-                  return (
-                    <button
-                      key={String(id)}
-                      type="button"
-                      onClick={() => {
-                        setExportPreset(id)
-                        setExportError(null)
-                      }}
-                      style={on ? {
-                        background: 'rgba(110,75,255,.25)',
-                        border: '1px solid var(--accent)',
-                        color: '#fff',
-                        borderRadius: 'var(--radius-sm)',
-                      } : {
-                        background: 'rgba(255,255,255,.07)',
-                        border: '1px solid rgba(255,255,255,.12)',
-                        color: 'rgba(255,255,255,.65)',
-                        borderRadius: 'var(--radius-sm)',
-                      }}
-                      className="px-2 py-2 text-xs transition"
-                      onMouseEnter={(e) => {
-                        if (!on) {
-                          const el = e.currentTarget
-                          el.style.background = 'rgba(255,255,255,.12)'
-                          el.style.borderColor = 'rgba(255,255,255,.25)'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!on) {
-                          const el = e.currentTarget
-                          el.style.background = 'rgba(255,255,255,.07)'
-                          el.style.borderColor = 'rgba(255,255,255,.12)'
-                        }
-                      }}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
+                    {label}
+                  </Pill>
+                ))}
               </div>
               <p
                 className="mb-3 leading-snug"
-                style={{ font: '400 11px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}
+                style={{ font: '400 10px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}
               >
-                {EXPORT_PRESETS.find((p) => p.id === exportPreset)?.hint}. Same framing as the viewport; lossless PNG.
+                {EXPORT_PRESETS.find((p) => p.id === exportPreset)?.hint}
               </p>
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <span style={{ font: '400 12px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.65)' }}>
-                  No background
-                  <span className="mt-0.5 block" style={{ font: '400 10px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}>
-                    Transparent PNG (no solid color)
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={exportTransparentBg}
-                  onClick={() => {
-                    setExportTransparentBg((v) => !v)
-                    setExportError(null)
-                  }}
-                  className="border-0 bg-transparent p-0"
-                >
-                  <span className="mockit-toggle" data-on={exportTransparentBg}>
-                    <span className="mockit-toggle-thumb" />
-                  </span>
-                </button>
+
+              <SubLabel>Fondo</SubLabel>
+              <div className="mb-2 grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { id: 'solid' as const, label: 'Actual' },
+                    { id: 'green' as const, label: 'Verde' },
+                    { id: 'transparent' as const, label: 'Sin fondo' },
+                  ] as const
+                ).map(({ id, label }) => (
+                  <Pill
+                    key={id}
+                    active={pngBgMode === id}
+                    onClick={() => { setPngBgMode(id); setExportError(null) }}
+                    className="justify-center px-2 py-1.5"
+                  >
+                    {label}
+                  </Pill>
+                ))}
               </div>
+              <p
+                className="mb-3 leading-snug"
+                style={{ font: '400 10px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}
+              >
+                {pngBgMode === 'solid'
+                  ? 'Usa el fondo actual de la escena.'
+                  : pngBgMode === 'green'
+                    ? 'Pantalla verde (#00FF00) — fácil de quitar con chroma key.'
+                    : 'PNG con canal alfa — sin fondo.'}
+              </p>
+
               <button
                 type="button"
                 onClick={exportPNG}
                 disabled={exporting}
-                className="w-full cursor-pointer py-3.5 transition enabled:hover:brightness-110 disabled:opacity-50"
+                className="w-full cursor-pointer py-3 transition enabled:hover:brightness-110 disabled:opacity-50"
                 style={{
                   background: 'var(--accent)',
                   color: '#fff',
                   borderRadius: 'var(--radius)',
                   boxShadow: '0 6px 20px -6px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,.25)',
-                  font: '600 15px/1 var(--font-sans)',
+                  font: '600 14px/1 var(--font-sans)',
                   border: 'none',
                 }}
               >
-                {exporting ? 'Exporting…' : 'Export PNG'}
+                {exporting ? 'Exportando…' : 'Exportar PNG'}
               </button>
               {exportError && (
-                <p className="mt-2 text-center text-xs leading-relaxed text-amber-600 dark:text-amber-400/90">
+                <p className="mt-2 text-center text-xs leading-relaxed" style={{ color: 'rgba(255,170,90,.95)' }}>
                   {exportError}
                 </p>
               )}
               <p
                 className="mt-2 text-center"
-                style={{ font: '400 12px/1 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}
+                style={{ font: '400 10px/1 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}
               >
-                No watermark — reframe before export
+                Sin marca de agua · reencuadra antes de exportar
               </p>
             </div>
           </div>
@@ -1391,6 +1275,62 @@ function MoveGlyph({ className }: { className?: string }) {
   )
 }
 
+function DeviceStackGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="4" y="3.5" width="9" height="14" rx="1.6" />
+      <rect x="11" y="6.5" width="9" height="14" rx="1.6" />
+    </svg>
+  )
+}
+
+function UploadGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  )
+}
+
+function PaletteGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 21a9 9 0 1 1 9-9c0 2-1.5 3-3 3h-2a2 2 0 0 0-2 2v.5A2.5 2.5 0 0 1 11.5 21z" />
+      <circle cx="7.5" cy="11" r="1" fill="currentColor" />
+      <circle cx="11" cy="7" r="1" fill="currentColor" />
+      <circle cx="16" cy="9" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
+function SunGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 3v2" />
+      <path d="M12 19v2" />
+      <path d="M4.2 4.2l1.4 1.4" />
+      <path d="M18.4 18.4l1.4 1.4" />
+      <path d="M3 12h2" />
+      <path d="M19 12h2" />
+      <path d="M4.2 19.8l1.4-1.4" />
+      <path d="M18.4 5.6l1.4-1.4" />
+    </svg>
+  )
+}
+
+function DownloadGlyph({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  )
+}
+
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -1465,22 +1405,176 @@ async function captureProjectThumbnail(
   })
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * Collapsible accordion card that groups one chunk of the studio sidebar.
+ * Header is always visible and clickable; body collapses to height 0 when closed.
+ *
+ * Visual: subtle glass card with hover, chevron that rotates 90deg when open.
+ */
+function Section({
+  id,
+  title,
+  icon,
+  hint,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string
+  title: string
+  icon?: React.ReactNode
+  hint?: React.ReactNode
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}) {
+  const bodyId = `section-${id}-body`
   return (
-    <div>
-      <h2
-        className="mb-2"
-        style={{
-          font: '600 11px/1 var(--font-sans)',
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: 'rgba(255,255,255,.4)',
-        }}
+    <div
+      className="overflow-hidden"
+      style={{
+        borderRadius: 'var(--radius-sm)',
+        background: open ? 'rgba(255,255,255,.035)' : 'rgba(255,255,255,.02)',
+        border: '1px solid rgba(255,255,255,.07)',
+        transition: 'background 0.2s, border-color 0.2s',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={bodyId}
+        className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-2.5 text-left transition"
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.04)' }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
       >
-        {label}
-      </h2>
-      {children}
+        {icon && (
+          <span
+            className="flex h-5 w-5 shrink-0 items-center justify-center"
+            style={{ color: open ? 'var(--accent)' : 'rgba(255,255,255,.55)' }}
+            aria-hidden
+          >
+            {icon}
+          </span>
+        )}
+        <span
+          className="flex-1"
+          style={{
+            font: '600 12px/1 var(--font-sans)',
+            letterSpacing: '0.01em',
+            color: open ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.75)',
+          }}
+        >
+          {title}
+        </span>
+        {hint && (
+          <span
+            className="tabular-nums"
+            style={{ font: '500 11px/1 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}
+          >
+            {hint}
+          </span>
+        )}
+        <span
+          className="shrink-0 transition-transform"
+          style={{
+            color: 'rgba(255,255,255,.4)',
+            transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+          }}
+          aria-hidden
+        >
+          <ChevronRightGlyph className="h-4 w-4 shrink-0" />
+        </span>
+      </button>
+      {open && (
+        <div id={bodyId} className="flex flex-col px-3 pt-1 pb-3">
+          {children}
+        </div>
+      )}
     </div>
+  )
+}
+
+/** Small uppercase caption used to label a sub-control inside a Section. */
+function SubLabel({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <p
+      className={`mb-1.5 ${className}`}
+      style={{
+        font: '600 10px/1 var(--font-sans)',
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+        color: 'rgba(255,255,255,.4)',
+      }}
+    >
+      {children}
+    </p>
+  )
+}
+
+/**
+ * Universal pill button for tab-style choices.
+ * Active = accent border + tint; idle = subtle glass; disabled = greyed out.
+ */
+function Pill({
+  active = false,
+  disabled = false,
+  onClick,
+  title,
+  className = '',
+  children,
+}: {
+  active?: boolean
+  disabled?: boolean
+  onClick?: () => void
+  title?: string
+  className?: string
+  children: React.ReactNode
+}) {
+  const base = {
+    borderRadius: 'var(--radius-sm)',
+  } as React.CSSProperties
+  const variant: React.CSSProperties = disabled
+    ? {
+        background: 'rgba(255,255,255,.04)',
+        border: '1px solid rgba(255,255,255,.08)',
+        color: 'rgba(255,255,255,.28)',
+        cursor: 'not-allowed',
+      }
+    : active
+      ? {
+          background: 'rgba(110,75,255,.25)',
+          border: '1px solid var(--accent)',
+          color: '#fff',
+        }
+      : {
+          background: 'rgba(255,255,255,.07)',
+          border: '1px solid rgba(255,255,255,.12)',
+          color: 'rgba(255,255,255,.65)',
+        }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{ ...base, ...variant }}
+      className={`px-3 py-1.5 text-xs transition ${className}`}
+      onMouseEnter={(e) => {
+        if (disabled || active) return
+        const el = e.currentTarget
+        el.style.background = 'rgba(255,255,255,.12)'
+        el.style.borderColor = 'rgba(255,255,255,.25)'
+      }}
+      onMouseLeave={(e) => {
+        if (disabled || active) return
+        const el = e.currentTarget
+        el.style.background = 'rgba(255,255,255,.07)'
+        el.style.borderColor = 'rgba(255,255,255,.12)'
+      }}
+    >
+      {children}
+    </button>
   )
 }
 

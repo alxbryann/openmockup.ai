@@ -25,6 +25,8 @@ export type DeviceInstance = {
   screenLoadError: string | null
   /** Loop / playback start offset in seconds (video only). */
   videoStartTime: number
+  /** Export clip end time in seconds (video only). null = not set. */
+  videoEndTime: number | null
   deviceKind: DeviceKind
   deviceColor: string
   deviceRotation: [number, number, number]
@@ -39,6 +41,7 @@ function makeDevice(positionX = 0): DeviceInstance {
     screenMediaKind: null,
     screenLoadError: null,
     videoStartTime: 0,
+    videoEndTime: null,
     deviceKind: 'phone',
     deviceColor: '#DFCEEA',
     deviceRotation: [0, 0, 0],
@@ -62,6 +65,7 @@ type State = {
   viewportInsetRight: number
   hydrationSeq: number
   captureSceneAtSize: null | ((width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => string)
+  captureSceneToCanvas: null | ((width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => HTMLCanvasElement)
   deviceDragMode: 'rotate' | 'move'
   setDeviceDragMode: (m: 'rotate' | 'move') => void
   addDevice: (kind?: DeviceKind) => void
@@ -73,6 +77,7 @@ type State = {
   resetDeviceRotation: (id: string) => void
   tickAutoRotate: (step: number) => void
   setCaptureSceneAtSize: (fn: State['captureSceneAtSize']) => void
+  setCaptureSceneToCanvas: (fn: State['captureSceneToCanvas']) => void
   setBgColor: (c: string) => void
   setAutoRotate: (v: boolean) => void
   setUiTheme: (t: 'dark' | 'light') => void
@@ -114,6 +119,7 @@ export const useStore = create<State>((set) => ({
   viewportInsetRight: 0,
   hydrationSeq: 0,
   captureSceneAtSize: null,
+  captureSceneToCanvas: null,
   deviceDragMode: 'rotate',
   setDeviceDragMode: (m) => set({ deviceDragMode: m }),
 
@@ -180,6 +186,7 @@ export const useStore = create<State>((set) => ({
     })),
 
   setCaptureSceneAtSize: (fn) => set({ captureSceneAtSize: fn }),
+  setCaptureSceneToCanvas: (fn) => set({ captureSceneToCanvas: fn }),
   setBgColor: (c) => set({ bgColor: c }),
   setAutoRotate: (v) => set({ autoRotate: v }),
   setUiTheme: (t) => set({ uiTheme: t }),
@@ -200,6 +207,7 @@ export const useStore = create<State>((set) => ({
           screenMediaKind:
             d.screenMediaKind ?? (d.screenshot ? 'image' : null),
           videoStartTime: d.videoStartTime ?? 0,
+          videoEndTime: d.videoEndTime ?? null,
           deviceRotation: [
             wrapSignedPi(d.deviceRotation[0]),
             wrapSignedPi(d.deviceRotation[1]),

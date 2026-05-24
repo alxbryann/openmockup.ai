@@ -6,7 +6,7 @@ import { MacBookFromGltf } from './MacBookFromGltf'
 import { PhoneFromGltf } from './PhoneFromGltf'
 import { PhoneProcedural } from './PhoneProcedural'
 import { useStore, type DeviceInstance } from './store'
-import { captureSceneToPngDataUrl } from './highResCapture'
+import { captureSceneToPngDataUrl, captureSceneToCanvas } from './highResCapture'
 import { isGradientBg } from './gradients'
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { MOUSE, TOUCH } from 'three'
@@ -605,17 +605,41 @@ function SceneCaptureRegistration() {
   const scene = useThree((s) => s.scene)
   const camera = useThree((s) => s.camera)
   const setCaptureSceneAtSize = useStore((s) => s.setCaptureSceneAtSize)
+  const setCaptureSceneToCanvas = useStore((s) => s.setCaptureSceneToCanvas)
 
   useEffect(() => {
-    const impl = (width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) =>
-      captureSceneToPngDataUrl(gl, scene, camera as THREE.PerspectiveCamera, width, height, opts)
-    setCaptureSceneAtSize(impl)
+    // Before any offscreen render, mark all VideoTextures dirty so the
+    // current video frame (including after a seek) is sampled, not a cached GPU copy.
+    const refreshVideoTextures = () => {
+      scene.traverse((obj) => {
+        const mesh = obj as THREE.Mesh
+        if (!mesh.isMesh) return
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        for (const m of mats) {
+          const mat = m as THREE.MeshBasicMaterial
+          if (mat?.map instanceof THREE.VideoTexture) mat.map.needsUpdate = true
+        }
+      })
+    }
+
+    const pngImpl = (width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => {
+      refreshVideoTextures()
+      return captureSceneToPngDataUrl(gl, scene, camera as THREE.PerspectiveCamera, width, height, opts)
+    }
+    const canvasImpl = (width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => {
+      refreshVideoTextures()
+      return captureSceneToCanvas(gl, scene, camera as THREE.PerspectiveCamera, width, height, opts)
+    }
+
+    setCaptureSceneAtSize(pngImpl)
+    setCaptureSceneToCanvas(canvasImpl)
     ;(window as any).__mockitCtx = { gl, scene, camera }
     return () => {
       setCaptureSceneAtSize(null)
+      setCaptureSceneToCanvas(null)
       ;(window as any).__mockitCtx = null
     }
-  }, [gl, scene, camera, setCaptureSceneAtSize])
+  }, [gl, scene, camera, setCaptureSceneAtSize, setCaptureSceneToCanvas])
   return null
 }
 

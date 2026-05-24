@@ -73,6 +73,7 @@ function defaultSnapshot(): ProjectSnapshot {
         screenMediaKind: null,
         screenLoadError: null,
         videoStartTime: 0,
+        videoEndTime: null,
         deviceKind: 'phone',
         deviceColor: '#DFCEEA',
         deviceRotation: [0, 0, 0],

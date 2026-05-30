@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three'
 import { captureSceneToPngDataUrl } from './highResCapture'
+import { isGradientBg } from './gradients'
 import { useStore } from './store'
 
 export type RenderMockupDevice = {
@@ -27,6 +28,10 @@ export type RenderMockupOpts = {
   camera_offset_x?: number
   /** Adds to camera Y before lookAt(origin). Negative ≈ lower camera (contrapicado / “hero” angle like stock mockups). */
   camera_offset_y?: number
+  /** Roll the camera around the Z axis (radians). Matches the cameraRoll store value. */
+  camera_roll?: number
+  /** Render with transparent background PNG. Ignores bgColor when true. */
+  transparent?: boolean
   /** Multi-device scene. Overrides single-device fields when provided. */
   devices?: RenderMockupDevice[]
 }
@@ -49,6 +54,7 @@ function waitFrames(n: number): Promise<void> {
 
   // Stop auto-rotate so the device stays at the exact angle we set
   store.setAutoRotate(false)
+  if (typeof opts.camera_roll === 'number') store.setCameraRoll(opts.camera_roll)
 
   // Build the device list — multi-device wins, otherwise synthesize a single device from top-level fields.
   const requested: RenderMockupDevice[] =
@@ -135,7 +141,11 @@ function waitFrames(n: number): Promise<void> {
       camera.updateProjectionMatrix()
     }
 
-    const result = captureSceneToPngDataUrl(gl, scene, camera, w, h)
+    const bgCss = opts.bgColor && isGradientBg(opts.bgColor) ? opts.bgColor : undefined
+    const captureOpts = opts.transparent
+      ? { transparent: true as const }
+      : bgCss ? { bgCss } : undefined
+    const result = captureSceneToPngDataUrl(gl, scene, camera, w, h, captureOpts)
 
     if (ox !== 0 || oy !== 0) {
       camera.position.copy(savedPos)

@@ -107,7 +107,7 @@ function renderSceneOffscreen(
     type: THREE.UnsignedByteType,
     colorSpace: gl.outputColorSpace as ColorSpace,
     depthBuffer: true,
-    samples: maxSamples,
+    samples: transparent ? 0 : maxSamples,
     anisotropy: gl.capabilities.getMaxAnisotropy(),
   })
 
@@ -120,6 +120,7 @@ function renderSceneOffscreen(
   try {
     gl.xr.enabled = false
     gl.setRenderTarget(rt)
+    if (transparent || needsBgComposite) gl.clear()
     gl.render(scene, exportCam)
     gl.setRenderTarget(prevTarget)
     gl.xr.enabled = prevXR

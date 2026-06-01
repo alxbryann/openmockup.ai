@@ -1,4 +1,5 @@
 import type { DeviceInstance } from './store'
+import { SupabaseProjectStore } from './supabaseProjectStore'
 
 export type ProjectSnapshot = {
   devices: DeviceInstance[]
@@ -181,7 +182,10 @@ class LocalProjectStore implements ProjectStore {
   }
 }
 
-export const projectStore: ProjectStore = new LocalProjectStore()
+// Use Supabase when configured, otherwise fall back to localStorage
+export const projectStore: ProjectStore = import.meta.env.VITE_SUPABASE_URL
+  ? new SupabaseProjectStore()
+  : new LocalProjectStore()
 
 export function snapshotFromStoreState(s: {
   devices: DeviceInstance[]

@@ -14,6 +14,7 @@ import { useVideoScreenBridge } from './videoScreenBridge'
 import { GRADIENT_PRESETS } from './gradients'
 import { projectStore, snapshotFromStoreState, type Project } from './projectStore'
 import { ProjectPicker } from './ProjectPicker'
+import { AgentPanel } from './AgentPanel'
 
 type AppProps = { initialProjectId?: string | null }
 
@@ -290,6 +291,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const { screenshot, screenMediaKind, screenLoadError, deviceKind, deviceColor, deviceRotation } =
     activeDevice
 
+  const [studioView, setStudioView] = useState<'normal' | 'agent'>('normal')
   const [exporting, setExporting] = useState(false)
   const [exportPreset, setExportPreset] = useState<ExportPreset>(3840)
   const [pngBgMode, setPngBgMode] = useState<PngBgMode>('solid')
@@ -542,6 +544,42 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
           </span>
         </button>
         <div className="flex items-center gap-1">
+          {/* View toggle: Studio ↔ Agent */}
+          <div
+            className="flex items-center"
+            style={{
+              background: 'rgba(255,255,255,.07)',
+              border: '1px solid rgba(255,255,255,.1)',
+              borderRadius: 10,
+              padding: 3,
+              gap: 2,
+              marginRight: 4,
+            }}
+          >
+            {(['normal', 'agent'] as const).map((v) => {
+              const active = studioView === v
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setStudioView(v)}
+                  style={{
+                    background: active ? 'rgba(110,75,255,.35)' : 'transparent',
+                    border: active ? '1px solid rgba(110,75,255,.55)' : '1px solid transparent',
+                    borderRadius: 7,
+                    padding: '3px 10px',
+                    font: '600 11px/1 var(--font-sans)',
+                    color: active ? '#fff' : 'rgba(255,255,255,.45)',
+                    cursor: 'pointer',
+                    letterSpacing: '0.01em',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {v === 'normal' ? 'Studio' : 'Agent'}
+                </button>
+              )
+            })}
+          </div>
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
@@ -560,19 +598,21 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
             </span>
             <span style={{ opacity: 0.4 }}>▾</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setSidePanelOpen((o) => !o)}
-            aria-pressed={sidePanelOpen}
-            aria-label={sidePanelOpen ? 'Hide options panel' : 'Show options panel'}
-            title={sidePanelOpen ? 'Hide panel — [ key' : 'Show panel — [ key'}
-            className="flex cursor-pointer rounded-lg border-0 bg-transparent p-2 transition"
-            style={{ color: 'rgba(255,255,255,.5)' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.08)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
-          >
-            <PanelSidebarGlyph className="h-5 w-5 shrink-0" />
-          </button>
+          {studioView === 'normal' && (
+            <button
+              type="button"
+              onClick={() => setSidePanelOpen((o) => !o)}
+              aria-pressed={sidePanelOpen}
+              aria-label={sidePanelOpen ? 'Hide options panel' : 'Show options panel'}
+              title={sidePanelOpen ? 'Hide panel — [ key' : 'Show panel — [ key'}
+              className="flex cursor-pointer rounded-lg border-0 bg-transparent p-2 transition"
+              style={{ color: 'rgba(255,255,255,.5)' }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.08)' }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+            >
+              <PanelSidebarGlyph className="h-5 w-5 shrink-0" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setUiTheme(uiTheme === 'dark' ? 'light' : 'dark')}
@@ -622,8 +662,30 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
 
         {screenMediaKind === 'video' && <VideoTimelineIsland deviceId={activeDevice.id} />}
 
+        {/* Agent panel */}
+        {studioView === 'agent' && (
+          <aside
+            className="absolute right-4 z-10 w-[min(100%-1.5rem,320px)] md:right-6 md:w-[min(100%-3rem,340px)]"
+            style={{
+              top: '0.75rem',
+              bottom: '0.75rem',
+              background: 'rgba(18,12,40,0.76)',
+              backdropFilter: 'blur(24px) saturate(160%)',
+              WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+              border: '1px solid rgba(255,255,255,.12)',
+              borderRadius: '1.25rem',
+              boxShadow: '0 30px 60px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.1)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <AgentPanel />
+          </aside>
+        )}
+
         {/* Side panel */}
-        <aside
+        {studioView === 'normal' && <aside
           className={`absolute top-1/2 right-4 z-10 w-[min(100%-1.5rem,300px)] max-h-[calc(100%-1.5rem)] -translate-y-1/2 overflow-y-auto rounded-2xl p-5 transition-[transform,opacity] duration-300 ease-out md:right-6 md:w-[min(100%-3rem,320px)] ${
             sidePanelOpen
               ? 'translate-x-0 opacity-100'
@@ -1187,7 +1249,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
               </p>
             </div>
           </div>
-        </aside>
+        </aside>}
       </div>
       <ProjectPicker
         open={pickerOpen}

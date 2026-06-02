@@ -177,18 +177,31 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   useEffect(() => {
     let cancelled = false
     async function bootstrap() {
-      const id = initialProjectId ?? projectStore.getLastOpenedId()
-      let project = id ? await projectStore.get(id) : null
-      // The stored last-opened id may belong to another account (RLS denies it,
-      // get() returns null). Fall back to this user's most recent project
-      // before spinning up a brand-new one.
+      // The current user's own projects (authoritative, user-scoped).
+      let mine: Awaited<ReturnType<typeof projectStore.list>> = []
+      try {
+        mine = await projectStore.list()
+      } catch {
+        /* not authenticated yet or list failed */
+      }
+      const ownIds = new Set(mine.map((p) => p.id))
+
+      let project = null
+      // An explicit id from the URL/gallery may point to a public project that
+      // isn't ours — allow opening it for viewing.
+      if (initialProjectId) {
+        project = await projectStore.get(initialProjectId)
+      }
+      // The implicit "last opened" id must only resume a project we actually
+      // own; otherwise a stale id left by another account in this browser would
+      // leak that account's public project into ours.
       if (!project) {
-        try {
-          const mine = await projectStore.list()
-          if (mine.length > 0) project = await projectStore.get(mine[0].id)
-        } catch {
-          /* not authenticated or list failed — fall through to create */
-        }
+        const lastId = projectStore.getLastOpenedId()
+        if (lastId && ownIds.has(lastId)) project = await projectStore.get(lastId)
+      }
+      // Otherwise resume our most recent project, or start fresh.
+      if (!project && mine.length > 0) {
+        project = await projectStore.get(mine[0].id)
       }
       if (!project) {
         project = await projectStore.create()

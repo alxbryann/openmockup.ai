@@ -414,10 +414,13 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
         <div ref={galleryGridRef} className="landing-gallery-grid landing-reveal" data-delay="1">
           {publicProjects.length > 0
             ? publicProjects.map((p) => {
-                const inset = Math.max(0, Math.min(0.9, p.viewportInsetRight || 0))
+                // Clamp defensively: a stale snapshot may carry an absurd inset
+                // (e.g. measured on a narrow window) that would otherwise render
+                // the card as a tall sliver.
+                const inset = Math.max(0, Math.min(0.5, p.viewportInsetRight || 0))
                 // Thumbnails are captured at the visible viewport (panel area
                 // already cropped), so the card aspect equals viewportAspect * (1-inset).
-                const aspect = (p.viewportAspect || 1) * (1 - inset)
+                const aspect = Math.max(0.5, (p.viewportAspect || 1) * (1 - inset))
                 const iframeWidthPct = 100 / (1 - inset)
                 return (
                 <button

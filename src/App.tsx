@@ -152,10 +152,18 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     function measure() {
       const hostRect = host!.getBoundingClientRect()
       const asideRect = (aside as HTMLElement).getBoundingClientRect()
-      if (hostRect.width <= 0) return
+      // On a narrow/transient layout (e.g. mobile or a mid-resize 0-width
+      // frame) the panel can cover almost the whole canvas. Baking that into
+      // the shareable framing produces a broken sliver thumbnail, so ignore it.
+      if (hostRect.width < 480) {
+        if (useStore.getState().viewportInsetRight !== 0) setViewportInsetRight(0)
+        return
+      }
       // Distance from the host's right edge to the aside's left edge, as a fraction of host width.
       const insetPx = Math.max(0, hostRect.right - asideRect.left)
-      const fraction = Math.round((insetPx / hostRect.width) * 1000) / 1000
+      // Clamp: a side panel should never legitimately count as more than ~half
+      // the frame for thumbnail/gallery purposes.
+      const fraction = Math.min(0.5, Math.round((insetPx / hostRect.width) * 1000) / 1000)
       if (fraction !== useStore.getState().viewportInsetRight) {
         setViewportInsetRight(fraction)
       }
@@ -1548,7 +1556,9 @@ async function captureProjectThumbnail(
   const fullH = canvas.clientHeight
   if (fullW <= 0 || fullH <= 0) return null
 
-  const visibleFrac = Math.max(0.1, Math.min(1, 1 - (viewportInsetRight || 0)))
+  // Never crop away more than half the frame — a stale/oversized inset would
+  // otherwise capture only a thin edge strip and miss the centered device.
+  const visibleFrac = Math.max(0.5, Math.min(1, 1 - (viewportInsetRight || 0)))
   const targetH = THUMBNAIL_TARGET_HEIGHT
   const targetFullW = Math.max(1, Math.round((targetH * fullW) / fullH))
   const targetVisibleW = Math.max(1, Math.round(targetFullW * visibleFrac))

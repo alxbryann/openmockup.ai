@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import type { Project, ProjectSnapshot, ProjectStore, ProjectSummary } from './projectStore'
+import type { Json } from './database.types'
 
 const LAST_OPENED_KEY = 'openmockup.lastProjectId.v1'
 
@@ -125,7 +126,7 @@ export class SupabaseProjectStore implements ProjectStore {
       .insert({
         user_id: userId,
         name: name?.trim() || 'Untitled mockup',
-        snapshot: stripBlobUrls(defaultSnap) as unknown as Record<string, unknown>,
+        snapshot: stripBlobUrls(defaultSnap) as unknown as Json,
       })
       .select()
       .single()
@@ -144,11 +145,11 @@ export class SupabaseProjectStore implements ProjectStore {
   }
 
   async save(id: string, patch: Partial<Omit<Project, 'id' | 'createdAt'>>): Promise<Project> {
-    const update: Record<string, unknown> = {}
+    const update: { name?: string; is_public?: boolean; thumbnail?: string | null; snapshot?: Json } = {}
     if (patch.name !== undefined) update.name = patch.name
     if (patch.isPublic !== undefined) update.is_public = patch.isPublic
     if (patch.thumbnail !== undefined) update.thumbnail = patch.thumbnail
-    if (patch.snapshot !== undefined) update.snapshot = stripBlobUrls(patch.snapshot) as unknown as Record<string, unknown>
+    if (patch.snapshot !== undefined) update.snapshot = stripBlobUrls(patch.snapshot) as unknown as Json
 
     const { data, error } = await supabase
       .from('projects')

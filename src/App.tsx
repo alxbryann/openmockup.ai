@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { exportPixelSize } from './highResCapture'
 import { CHROMA_KEY_GREEN } from './highResVideoExport'
+import { useAuth, SUPABASE_ENABLED } from './useAuth'
+import { supabase } from './supabase'
 import {
   Scene,
   ORBIT_MAX_DISTANCE,
@@ -108,6 +110,14 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const viewportInsetRight = useStore((s) => s.viewportInsetRight)
   const setViewportAspect = useStore((s) => s.setViewportAspect)
   const setViewportInsetRight = useStore((s) => s.setViewportInsetRight)
+
+  const { user } = useAuth()
+
+  async function handleSignOut() {
+    history.pushState(null, '', '/')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    if (SUPABASE_ENABLED) await supabase.auth.signOut()
+  }
 
   // Track the scene canvas aspect ratio so the embed can reproduce the same framing.
   useEffect(() => {
@@ -540,7 +550,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
               fontFamily: 'var(--font-sans)',
             }}
           >
-            openmockup<span style={{ color: 'var(--accent)' }}>.ai</span>
+            openmockup<span style={{ color: 'var(--accent)' }}>.dev</span>
           </span>
         </button>
         <div className="flex items-center gap-1">
@@ -612,6 +622,32 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
             >
               <PanelSidebarGlyph className="h-5 w-5 shrink-0" />
             </button>
+          )}
+          {user && (
+            <div className="flex items-center gap-1.5 ml-1 mr-0.5">
+              <div
+                style={{
+                  width: 28, height: 28, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #6e4bff, #ff7eb6)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0,
+                  border: '1.5px solid rgba(255,255,255,.15)',
+                }}
+                title={user.email ?? 'Account'}
+              >
+                {(user.email?.[0] ?? '?').toUpperCase()}
+              </div>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="flex cursor-pointer items-center gap-1 border-0 bg-transparent px-2 py-1 rounded-lg transition text-xs"
+                style={{ color: 'rgba(255,255,255,.45)', font: '500 12px/1 var(--font-sans)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,.08)'; e.currentTarget.style.color = 'rgba(255,255,255,.7)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,.45)' }}
+              >
+                Sign out
+              </button>
+            </div>
           )}
           <button
             type="button"

@@ -4,6 +4,8 @@ import './index.css'
 import App from './App.tsx'
 import Landing from './Landing.tsx'
 import EmbedView from './EmbedView.tsx'
+import { AuthModal } from './AuthModal.tsx'
+import { useAuth, SUPABASE_ENABLED } from './useAuth.ts'
 import './renderApi'  // Headless render API for Playwright automation
 
 const MESH_BG = [
@@ -25,6 +27,9 @@ function readMode(): { mode: Mode; projectId: string | null } {
 
 function Root() {
   const [{ mode, projectId }, setRoute] = useState(readMode)
+  const [showAuth, setShowAuth] = useState(false)
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null)
+  const { user, loading: authLoading } = useAuth()
 
   // Listen for back/forward navigation
   useEffect(() => {
@@ -32,6 +37,17 @@ function Root() {
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
+
+  // If URL has ?studio but Supabase auth is required and user is not logged in,
+  // redirect back to landing and surface the auth modal.
+  useEffect(() => {
+    if (!SUPABASE_ENABLED || authLoading) return
+    if (mode === 'studio' && !user) {
+      history.replaceState(null, '', '/')
+      setRoute(readMode())
+      setShowAuth(true)
+    }
+  }, [mode, user, authLoading])
 
   useEffect(() => {
     const html = document.documentElement
@@ -60,16 +76,57 @@ function Root() {
     }
   }, [mode])
 
+  function enterStudio(pid?: string | null) {
+    // If Supabase auth is required and user is not signed in, show auth modal
+    if (SUPABASE_ENABLED && !user) {
+      setPendingProjectId(pid ?? null)
+      setShowAuth(true)
+      return
+    }
+    const url = pid ? `?studio&project=${pid}` : '?studio'
+    history.pushState(null, '', url)
+    setRoute(readMode())
+  }
+
+  function onAuthSuccess() {
+    setShowAuth(false)
+    const url = pendingProjectId ? `?studio&project=${pendingProjectId}` : '?studio'
+    history.pushState(null, '', url)
+    setRoute(readMode())
+    setPendingProjectId(null)
+  }
+
   if (mode === 'embed' && projectId) return <EmbedView projectId={projectId} />
-  if (mode === 'studio') return <App initialProjectId={projectId} />
+
+  if (mode === 'studio') {
+    // While auth is resolving, show a minimal dark splash instead of flashing the studio
+    if (SUPABASE_ENABLED && authLoading) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#080b10' }}>
+          <div className="mockit-spinner" />
+        </div>
+      )
+    }
+    return <App initialProjectId={projectId} />
+  }
+
   return (
-    <Landing
-      onEnter={(pid) => {
-        const url = pid ? `?studio&project=${pid}` : '?studio'
-        history.pushState(null, '', url)
-        setRoute(readMode())
-      }}
-    />
+    <>
+      <Landing
+        onEnter={enterStudio}
+        onSignIn={() => setShowAuth(true)}
+        userEmail={user?.email ?? null}
+        onSignOut={async () => {
+          // Navigate first, then sign out — avoids the auth guard re-triggering
+          history.pushState(null, '', '/')
+          setRoute(readMode())
+          if (SUPABASE_ENABLED) await import('./supabase').then(m => m.supabase.auth.signOut())
+        }}
+      />
+      {showAuth && (
+        <AuthModal onSuccess={onAuthSuccess} onClose={() => setShowAuth(false)} />
+      )}
+    </>
   )
 }
 

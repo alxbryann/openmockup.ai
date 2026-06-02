@@ -126,6 +126,7 @@ export class SupabaseProjectStore implements ProjectStore {
       .insert({
         user_id: userId,
         name: name?.trim() || 'Untitled mockup',
+        is_public: true,
         snapshot: stripBlobUrls(defaultSnap) as unknown as Json,
       })
       .select()

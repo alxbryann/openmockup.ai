@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { projectStore, type ProjectSummary } from './projectStore'
 
-type Props = { onEnter: (projectId?: string) => void }
+type Props = {
+  onEnter: (pid?: string | null) => void
+  onSignIn: () => void
+  userEmail: string | null
+  onSignOut: () => void
+}
 
 const Logo = () => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -22,7 +27,7 @@ const Logo = () => (
       <ellipse cx="14" cy="12" rx="6" ry="3" fill="#fff" opacity=".55" />
     </svg>
     <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-      openmockup<span style={{ color: 'var(--accent)' }}>.ai</span>
+      openmockup<span style={{ color: 'var(--accent)' }}>.dev</span>
     </span>
   </div>
 )
@@ -164,7 +169,7 @@ function useReveal<T extends HTMLElement>() {
   return ref
 }
 
-export default function Landing({ onEnter }: Props) {
+export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [publicProjects, setPublicProjects] = useState<ProjectSummary[]>([])
   const featuresHeaderRef = useReveal<HTMLDivElement>()
@@ -207,7 +212,23 @@ export default function Landing({ onEnter }: Props) {
           ))}
         </div>
         <div className="landing-nav-ctas">
-          <button type="button" className="landing-nav-signin">Sign in</button>
+          {userEmail ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                width: 30, height: 30, borderRadius: '50%',
+                background: 'linear-gradient(135deg, #6e4bff, #ff7eb6)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0,
+              }}>
+                {userEmail[0].toUpperCase()}
+              </div>
+              <button type="button" onClick={onSignOut} className="landing-nav-signin">
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="landing-nav-signin" onClick={onSignIn}>Sign in</button>
+          )}
           <button
             type="button"
             className="landing-nav-menu-btn"
@@ -512,7 +533,7 @@ export default function Landing({ onEnter }: Props) {
             }}
             onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.06)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
             onMouseLeave={e => { e.currentTarget.style.filter = ''; e.currentTarget.style.transform = '' }}
-            >Open openmockup.ai <span className="landing-cta-arrow">→</span></button>
+            >Open openmockup.dev <span className="landing-cta-arrow">→</span></button>
             <button style={{
               padding: '14px 22px', borderRadius: 999,
               border: '1px solid var(--border-2)', background: 'var(--surface-2)',

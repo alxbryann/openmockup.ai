@@ -59,6 +59,11 @@ export function ProjectPicker({ open, currentProjectId, onPick, onCreate, onClos
     setItems(await projectStore.list())
   }
 
+  async function handleTogglePublic(p: ProjectSummary) {
+    await projectStore.save(p.id, { isPublic: !p.isPublic })
+    setItems(await projectStore.list())
+  }
+
   function startRename(p: ProjectSummary) {
     setRenamingId(p.id)
     setRenameValue(p.name)
@@ -238,12 +243,43 @@ export function ProjectPicker({ open, currentProjectId, onPick, onCreate, onClos
                           </div>
                           <div style={{ marginTop: 2, fontSize: 12, color: 'rgba(255,255,255,.45)' }}>
                             Updated {formatRelative(p.updatedAt)}
-                            {p.isPublic ? ' · public' : ' · private'}
                           </div>
                         </button>
                       )}
                       {!isRenaming && (
                         <>
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePublic(p)}
+                            aria-label={p.isPublic ? `Make ${p.name} private` : `Publish ${p.name} to gallery`}
+                            title={p.isPublic ? 'Public — shown in the landing gallery. Click to make private.' : 'Private. Click to publish to the landing gallery.'}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              padding: '5px 9px',
+                              borderRadius: 999,
+                              border: `1px solid ${p.isPublic ? 'rgba(110,75,255,.45)' : 'rgba(255,255,255,.12)'}`,
+                              background: p.isPublic ? 'rgba(110,75,255,.18)' : 'transparent',
+                              color: p.isPublic ? 'rgba(190,170,255,.95)' : 'rgba(255,255,255,.4)',
+                              cursor: 'pointer',
+                              font: '500 11px/1 var(--font-sans)',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {p.isPublic ? (
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                              </svg>
+                            ) : (
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                                <rect x="3" y="11" width="18" height="11" rx="2" />
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4" strokeLinecap="round" />
+                              </svg>
+                            )}
+                            {p.isPublic ? 'Public' : 'Private'}
+                          </button>
                           <button
                             type="button"
                             onClick={() => startRename(p)}

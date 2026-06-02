@@ -79,6 +79,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const fileRef = useRef<HTMLInputElement>(null)
   const sceneHostRef = useRef<HTMLDivElement>(null)
   const [sidePanelOpen, setSidePanelOpen] = useState(true)
+  const [studioView, setStudioView] = useState<'normal' | 'agent'>('normal')
   const {
     devices,
     activeDeviceId,
@@ -141,8 +142,10 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   useEffect(() => {
     const host = sceneHostRef.current
     if (!host) return
+    // The agent view always shows its panel; the normal view only when open.
+    const panelVisible = studioView === 'agent' ? true : sidePanelOpen
     const aside = host.querySelector('aside')
-    if (!sidePanelOpen || !aside) {
+    if (!panelVisible || !aside) {
       if (useStore.getState().viewportInsetRight !== 0) setViewportInsetRight(0)
       return
     }
@@ -162,7 +165,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     ro.observe(host)
     ro.observe(aside as HTMLElement)
     return () => ro.disconnect()
-  }, [sidePanelOpen, setViewportInsetRight])
+  }, [sidePanelOpen, studioView, setViewportInsetRight])
 
   const [activeProject, setActiveProject] = useState<Project | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -176,6 +179,17 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     async function bootstrap() {
       const id = initialProjectId ?? projectStore.getLastOpenedId()
       let project = id ? await projectStore.get(id) : null
+      // The stored last-opened id may belong to another account (RLS denies it,
+      // get() returns null). Fall back to this user's most recent project
+      // before spinning up a brand-new one.
+      if (!project) {
+        try {
+          const mine = await projectStore.list()
+          if (mine.length > 0) project = await projectStore.get(mine[0].id)
+        } catch {
+          /* not authenticated or list failed — fall through to create */
+        }
+      }
       if (!project) {
         project = await projectStore.create()
       }
@@ -301,7 +315,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const { screenshot, screenMediaKind, screenLoadError, deviceKind, deviceColor, deviceRotation } =
     activeDevice
 
-  const [studioView, setStudioView] = useState<'normal' | 'agent'>('normal')
+  const [isDraggingOver, setIsDraggingOver] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportPreset, setExportPreset] = useState<ExportPreset>(3840)
   const [pngBgMode, setPngBgMode] = useState<PngBgMode>('solid')
@@ -372,12 +386,8 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     })
   }
 
-  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    e.target.value = ''
+  const processFile = useCallback(async (file: File) => {
     updateDevice(activeDevice.id, { screenLoadError: null })
-
     const mediaKind = inferScreenMediaKind(file)
 
     if (mediaKind === 'video') {
@@ -392,19 +402,14 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
       return
     }
 
-    const isHeic =
-      /image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name)
+    const isHeic = /image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name)
 
     try {
       revokeScreenSrc(activeDevice.screenshot, activeDevice.screenMediaKind)
       let dataUrl: string
       if (isHeic) {
         const heic2any = (await import('heic2any')).default
-        const converted = await heic2any({
-          blob: file,
-          toType: 'image/jpeg',
-          quality: 0.92,
-        })
+        const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 })
         const blob = Array.isArray(converted) ? converted[0] : converted
         dataUrl = await readBlobAsDataUrl(blob)
       } else {
@@ -419,7 +424,34 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
           : 'Could not read the file.',
       })
     }
+  }, [activeDevice, updateDevice])
+
+  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    await processFile(file)
   }
+
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      const el = e.target as HTMLElement | null
+      if (el?.closest('input, textarea, select, [contenteditable="true"]')) return
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile()
+          if (file) {
+            processFile(file)
+            break
+          }
+        }
+      }
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [processFile])
 
   function exportPNG() {
     setExportError(null)
@@ -662,8 +694,44 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         </div>
       </header>
 
-      <div ref={sceneHostRef} className="relative min-h-0 flex-1">
+      <div
+        ref={sceneHostRef}
+        className="relative min-h-0 flex-1"
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setIsDraggingOver(true) }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDraggingOver(false) }}
+        onDrop={(e) => {
+          e.preventDefault()
+          setIsDraggingOver(false)
+          const file = e.dataTransfer.files[0]
+          if (file) processFile(file)
+        }}
+      >
         <Scene onReady={handleSceneReady} />
+
+        {/* Drag-and-drop overlay */}
+        {isDraggingOver && (
+          <div
+            className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center gap-3"
+            style={{
+              background: 'rgba(18,12,40,.75)',
+              backdropFilter: 'blur(6px)',
+              border: '2px dashed rgba(110,75,255,.7)',
+              boxSizing: 'border-box',
+            }}
+          >
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(110,75,255,.9)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            <p style={{ font: '600 16px/1 var(--font-sans)', color: 'rgba(255,255,255,.9)', margin: 0 }}>
+              Suelta la imagen aquí
+            </p>
+            <p style={{ font: '400 12px/1 var(--font-sans)', color: 'rgba(255,255,255,.45)', margin: 0 }}>
+              PNG · JPG · HEIC · MP4 · MOV · WebM
+            </p>
+          </div>
+        )}
 
         {/* Zoom badge */}
         <div
@@ -862,7 +930,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                     : '+ Subir imagen o video'}
                 </span>
                 <span style={{ font: '400 10px/1.3 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}>
-                  PNG · JPG · HEIC · MP4 · MOV · WebM
+                  Arrastra, pega (⌘V) o sube · PNG · JPG · HEIC · MP4 · MOV
                 </span>
               </button>
               <input

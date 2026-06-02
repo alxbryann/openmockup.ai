@@ -4,6 +4,19 @@ import type { Json } from './database.types'
 
 const LAST_OPENED_KEY = 'openmockup.lastProjectId.v1'
 
+// Track the signed-in user id so the "last opened project" key can be scoped
+// per account. Without this, two accounts in the same browser would share a
+// single lastProjectId and one could inherit the other's project on login.
+let activeUserId: string | null = null
+if (supabase) {
+  supabase.auth.getSession().then(({ data }) => {
+    activeUserId = data.session?.user?.id ?? null
+  })
+  supabase.auth.onAuthStateChange((_event, session) => {
+    activeUserId = session?.user?.id ?? null
+  })
+}
+
 function stripBlobUrls(snapshot: ProjectSnapshot): ProjectSnapshot {
   return {
     ...snapshot,
@@ -24,9 +37,14 @@ export class SupabaseProjectStore implements ProjectStore {
   }
 
   async list(): Promise<ProjectSummary[]> {
+    // Explicitly scope to the current user. RLS also allows reading any public
+    // project, so without this filter the picker would surface other users'
+    // public mockups too.
+    const userId = await this.userId()
     const { data, error } = await supabase
       .from('projects')
       .select('id, name, created_at, updated_at, is_public, thumbnail, snapshot')
+      .eq('user_id', userId)
       .order('updated_at', { ascending: false })
 
     if (error) throw error
@@ -126,7 +144,9 @@ export class SupabaseProjectStore implements ProjectStore {
       .insert({
         user_id: userId,
         name: name?.trim() || 'Untitled mockup',
-        is_public: true,
+        // Private by default — the user explicitly publishes a mockup to the
+        // public gallery from the project picker.
+        is_public: false,
         snapshot: stripBlobUrls(defaultSnap) as unknown as Json,
       })
       .select()
@@ -178,9 +198,13 @@ export class SupabaseProjectStore implements ProjectStore {
     if (this.getLastOpenedId() === id) this.setLastOpenedId(null)
   }
 
+  private lastKey(): string {
+    return activeUserId ? `${LAST_OPENED_KEY}:${activeUserId}` : LAST_OPENED_KEY
+  }
+
   getLastOpenedId(): string | null {
     try {
-      return localStorage.getItem(LAST_OPENED_KEY)
+      return localStorage.getItem(this.lastKey())
     } catch {
       return null
     }
@@ -188,8 +212,8 @@ export class SupabaseProjectStore implements ProjectStore {
 
   setLastOpenedId(id: string | null): void {
     try {
-      if (id) localStorage.setItem(LAST_OPENED_KEY, id)
-      else localStorage.removeItem(LAST_OPENED_KEY)
+      if (id) localStorage.setItem(this.lastKey(), id)
+      else localStorage.removeItem(this.lastKey())
     } catch {
       /* ignore */
     }

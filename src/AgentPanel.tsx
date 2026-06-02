@@ -310,11 +310,8 @@ const SUGGESTIONS = [
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function AgentPanel() {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(API_KEY_STORAGE) ?? ENV_API_KEY ?? '')
-  const [draftKey, setDraftKey] = useState('')
-  const [showKeySetup, setShowKeySetup] = useState(
-    () => !localStorage.getItem(API_KEY_STORAGE) && !ENV_API_KEY,
-  )
+  // Key: env var baked at build time takes priority, localStorage as fallback
+  const [apiKey] = useState(() => ENV_API_KEY ?? localStorage.getItem(API_KEY_STORAGE) ?? '')
 
   const [uiMessages, setUiMessages] = useState<UIMessage[]>([])
   const [apiMessages, setApiMessages] = useState<ApiMessage[]>([])
@@ -327,15 +324,6 @@ export function AgentPanel() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [uiMessages])
-
-  function saveKey() {
-    const k = draftKey.trim()
-    if (!k) return
-    localStorage.setItem(API_KEY_STORAGE, k)
-    setApiKey(k)
-    setDraftKey('')
-    setShowKeySetup(false)
-  }
 
   function clearConversation() {
     setUiMessages([])
@@ -471,104 +459,14 @@ export function AgentPanel() {
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`
   }
 
-  // ── API key setup screen ───────────────────────────────────────────────────
+  // ── No key configured (should never happen in production) ────────────────
 
-  if (showKeySetup || !apiKey) {
+  if (!apiKey) {
     return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100%',
-          padding: '1.5rem',
-          gap: '1rem',
-        }}
-      >
-        <div
-          style={{
-            background: 'rgba(18,12,40,0.85)',
-            backdropFilter: 'blur(24px)',
-            border: '1px solid rgba(255,255,255,.13)',
-            borderRadius: '1.25rem',
-            padding: '1.75rem 1.5rem',
-            width: '100%',
-            maxWidth: 300,
-            boxShadow: '0 24px 48px rgba(0,0,0,.5)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-            <OrbIcon size={44} />
-          </div>
-          <h2
-            style={{
-              font: '700 15px/1.3 var(--font-sans)',
-              color: '#fff',
-              textAlign: 'center',
-              margin: '0 0 0.375rem',
-            }}
-          >
-            Agent View
-          </h2>
-          <p
-            style={{
-              font: '400 12px/1.55 var(--font-sans)',
-              color: 'rgba(255,255,255,.45)',
-              textAlign: 'center',
-              margin: '0 0 1.25rem',
-            }}
-          >
-            Tell Claude what mockup you want — it'll build it live in the 3D scene.
-          </p>
-          <input
-            type="password"
-            value={draftKey}
-            onChange={(e) => setDraftKey(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') saveKey() }}
-            placeholder="sk-ant-api03-…"
-            autoFocus
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              background: 'rgba(255,255,255,.07)',
-              border: '1px solid rgba(255,255,255,.15)',
-              borderRadius: '0.625rem',
-              padding: '0.625rem 0.75rem',
-              color: '#fff',
-              font: '400 12px/1 var(--font-mono)',
-              outline: 'none',
-            }}
-          />
-          <button
-            onClick={saveKey}
-            disabled={!draftKey.trim()}
-            style={{
-              marginTop: '0.625rem',
-              width: '100%',
-              background: draftKey.trim() ? 'var(--accent)' : 'rgba(255,255,255,.1)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '0.625rem',
-              padding: '0.625rem',
-              font: '600 13px/1 var(--font-sans)',
-              cursor: draftKey.trim() ? 'pointer' : 'default',
-              transition: 'background 0.15s',
-            }}
-          >
-            Start building
-          </button>
-          <p
-            style={{
-              marginTop: '0.75rem',
-              font: '400 10px/1.4 var(--font-sans)',
-              color: 'rgba(255,255,255,.25)',
-              textAlign: 'center',
-            }}
-          >
-            Stored in your browser only. Sent only to api.anthropic.com.
-          </p>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '1.5rem' }}>
+        <p style={{ font: '400 12px/1.5 var(--font-sans)', color: 'rgba(255,255,255,.35)', textAlign: 'center' }}>
+          API key not configured.
+        </p>
       </div>
     )
   }
@@ -634,23 +532,6 @@ export function AgentPanel() {
               Clear
             </button>
           )}
-          <button
-            onClick={() => { setShowKeySetup(true); setDraftKey('') }}
-            title="Change API key"
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: '0.25rem 0.5rem',
-              font: '400 10px/1 var(--font-sans)',
-              color: 'rgba(255,255,255,.3)',
-              cursor: 'pointer',
-              borderRadius: 6,
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,.6)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,.3)' }}
-          >
-            Key
-          </button>
         </div>
       </div>
 

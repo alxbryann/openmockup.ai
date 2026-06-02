@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import { supabase } from './supabase'
+import { SUPABASE_ENABLED } from './useAuth'
+
+const AUTH_UNAVAILABLE = 'Authentication is not configured. Please try again later.'
 
 type Tab = 'signin' | 'signup'
 
@@ -58,6 +61,10 @@ export function AuthModal({ onSuccess, onClose }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!SUPABASE_ENABLED || !supabase) {
+      setError(AUTH_UNAVAILABLE)
+      return
+    }
     setError(null)
     setLoading(true)
     try {
@@ -84,6 +91,10 @@ export function AuthModal({ onSuccess, onClose }: Props) {
   }
 
   async function handleGoogle() {
+    if (!SUPABASE_ENABLED || !supabase) {
+      setError(AUTH_UNAVAILABLE)
+      return
+    }
     setError(null)
     setOauthLoading(true)
     try {

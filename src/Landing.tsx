@@ -553,6 +553,10 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
       <footer className="landing-footer">
         <Logo />
         <span style={{ fontSize: 13, color: 'var(--fg-3)' }}>Built with care in Bogotá</span>
+        <a href="?terms" style={{ fontSize: 13, color: 'var(--fg-3)', textDecoration: 'none' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--fg)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--fg-3)')}
+        >Terms of Service</a>
       </footer>
     </div>
   )

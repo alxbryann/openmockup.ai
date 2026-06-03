@@ -5,6 +5,7 @@ import './index.css'
 import App from './App.tsx'
 import Landing from './Landing.tsx'
 import EmbedView from './EmbedView.tsx'
+import TermsPage from './TermsPage.tsx'
 import { AuthModal } from './AuthModal.tsx'
 import { useAuth, SUPABASE_ENABLED } from './useAuth.ts'
 import './renderApi'  // Headless render API for Playwright automation
@@ -16,13 +17,14 @@ const MESH_BG = [
   'linear-gradient(180deg, #f4ecff 0%, #ffefe7 100%)',
 ].join(', ')
 
-type Mode = 'landing' | 'studio' | 'embed'
+type Mode = 'landing' | 'studio' | 'embed' | 'terms'
 
 function readMode(): { mode: Mode; projectId: string | null } {
   const q = new URLSearchParams(location.search)
   const projectId = q.get('project')
   if (q.has('embed') && projectId) return { mode: 'embed', projectId }
   if (q.has('studio')) return { mode: 'studio', projectId }
+  if (q.has('terms')) return { mode: 'terms', projectId: null }
   return { mode: 'landing', projectId: null }
 }
 
@@ -98,6 +100,8 @@ function Root() {
   }
 
   if (mode === 'embed' && projectId) return <EmbedView projectId={projectId} />
+
+  if (mode === 'terms') return <TermsPage />
 
   if (mode === 'studio') {
     // While auth is resolving, show a minimal dark splash instead of flashing the studio

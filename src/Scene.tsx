@@ -1,10 +1,8 @@
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { OrbitControls, Environment, ContactShadows, useProgress } from '@react-three/drei'
 import { Suspense } from 'react'
-import { MacBook } from './MacBook'
 import { MacBookFromGltf } from './MacBookFromGltf'
 import { PhoneFromGltf } from './PhoneFromGltf'
-import { PhoneProcedural } from './PhoneProcedural'
 import { useStore, type DeviceInstance } from './store'
 import { captureSceneToPngDataUrl, captureSceneToCanvas } from './highResCapture'
 import { isGradientBg } from './gradients'
@@ -65,16 +63,7 @@ function DeviceGroup({
       onPointerDown={interactive ? (e) => onPointerDown(e, device.id) : undefined}
     >
       {device.deviceKind === 'phone' ? (
-        <Suspense
-          fallback={
-            <PhoneProcedural
-              deviceId={device.id}
-              screenshot={device.screenshot}
-              screenMediaKind={device.screenMediaKind}
-              deviceColor={device.deviceColor}
-            />
-          }
-        >
+        <Suspense fallback={null}>
           <PhoneFromGltf
             deviceId={device.id}
             screenshot={device.screenshot}
@@ -83,16 +72,7 @@ function DeviceGroup({
           />
         </Suspense>
       ) : (
-        <Suspense
-          fallback={
-            <MacBook
-              deviceId={device.id}
-              screenshot={device.screenshot}
-              screenMediaKind={device.screenMediaKind}
-              deviceColor={device.deviceColor}
-            />
-          }
-        >
+        <Suspense fallback={null}>
           <MacBookFromGltf
             deviceId={device.id}
             screenshot={device.screenshot}

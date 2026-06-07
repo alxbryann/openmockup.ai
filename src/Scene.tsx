@@ -712,8 +712,8 @@ function SceneWorld({ onReady }: { onReady?: () => void }) {
   )
 }
 
-export const Scene = forwardRef<HTMLCanvasElement, { onReady?: () => void }>(
-  function Scene({ onReady }, ref) {
+export const Scene = forwardRef<HTMLCanvasElement, { onReady?: () => void; dpr?: number | [number, number] }>(
+  function Scene({ onReady, dpr }, ref) {
     const bgColor = useStore((s) => s.bgColor)
     const stableOnReady = useCallback(() => onReady?.(), [onReady])
 
@@ -722,6 +722,7 @@ export const Scene = forwardRef<HTMLCanvasElement, { onReady?: () => void }>(
         <Canvas
           ref={ref}
           shadows
+          dpr={dpr}
           camera={{ position: [0, 0, 28], fov: 28 }}
           gl={{ preserveDrawingBuffer: true, antialias: true, toneMappingExposure: 0.94, alpha: true }}
           style={{ width: '100%', height: '100%' }}

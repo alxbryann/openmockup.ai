@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { getAuthRedirectUrl } from './authRedirect'
 import { supabase } from './supabase'
 import { SUPABASE_ENABLED } from './useAuth'
 
@@ -100,7 +101,7 @@ export function AuthModal({ onSuccess, onClose }: Props) {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: `${window.location.origin}?studio` },
+        options: { redirectTo: getAuthRedirectUrl('?studio') },
       })
       if (error) throw error
       // On success the browser redirects to Google — oauthLoading stays true intentionally

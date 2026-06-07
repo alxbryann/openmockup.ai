@@ -184,7 +184,7 @@ export function MacBookFromGltf({
      * - TRIM_SIDE: inset left/right so the plane does not spill past the bezel.
      * Center moves by −(EXTEND_DOWN + TRIM_TOP)/2 so bottom extends more than top trims.
      */
-    const EXTEND_DOWN = 3.05
+    const EXTEND_DOWN = 2.05
     const TRIM_TOP = 0.38
     const TRIM_SIDE = 0.32
     _c.set(layout.cx, layout.cy - (EXTEND_DOWN + TRIM_TOP) / 2, layout.cz + 0.18)

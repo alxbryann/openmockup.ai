@@ -344,11 +344,8 @@ body,
   transition: transform .35s cubic-bezier(.2,.7,.2,1);
 }
 
-.landing-gallery-card img {
-  transition: transform .9s cubic-bezier(.2,.7,.2,1);
-}
-.landing-gallery-card:hover img {
-  transform: scale(1.06);
+.landing-gallery-card-embed {
+  will-change: opacity;
 }
 
 .landing-logos-track {
@@ -702,6 +699,60 @@ body,
 
 .landing-gallery-card:hover {
   transform: translateY(-4px);
+}
+
+.landing-gallery-skeleton,
+.landing-gallery-card-skeleton {
+  background: linear-gradient(135deg, #120a22 0%, #0a0614 55%, #140d28 100%);
+  pointer-events: none;
+}
+
+.landing-gallery-skeleton::after,
+.landing-gallery-card-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(196, 179, 255, 0.14) 45%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(196, 179, 255, 0.14) 55%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-position: -200% center;
+  animation: landing-shimmer 1.8s ease-in-out infinite;
+}
+
+.landing-gallery-card-loading {
+  cursor: wait;
+}
+
+.landing-gallery-embed-skeleton {
+  background: linear-gradient(135deg, #120a22 0%, #0a0614 55%, #140d28 100%);
+  overflow: hidden;
+}
+
+.landing-gallery-embed-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(196, 179, 255, 0.14) 45%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(196, 179, 255, 0.14) 55%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-position: -200% center;
+  animation: landing-shimmer 1.8s ease-in-out infinite;
+}
+
+.landing-gallery-card-media {
+  transition: opacity 0.35s ease;
 }
 
 .landing-cta-section {

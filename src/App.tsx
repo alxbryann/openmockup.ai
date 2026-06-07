@@ -1536,8 +1536,8 @@ function readBlobAsDataUrl(blob: Blob): Promise<string> {
   })
 }
 
-const THUMBNAIL_TARGET_HEIGHT = 360
-const THUMBNAIL_JPEG_QUALITY = 0.82
+const THUMBNAIL_TARGET_HEIGHT = 800
+const THUMBNAIL_JPEG_QUALITY = 0.88
 
 /**
  * Renders the scene off-screen, crops the area covered by the side panel,

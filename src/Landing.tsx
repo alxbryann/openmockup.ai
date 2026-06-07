@@ -57,11 +57,144 @@ const features = [
   },
 ]
 
-const gallery = [
-  { handle: '@studio_nox', img: '/gallery/g1.png' },
-  { handle: '@studio_ema', img: '/gallery/g2.png' },
-  { handle: '@studio_ari', img: '/gallery/g3.png' },
-]
+const GALLERY_SKELETON_COUNT = 3
+/** Render embed iframes at N× card size, then scale down for crisp WebGL on retina. */
+const GALLERY_EMBED_SCALE = 2.5
+
+function GallerySkeleton({ aspect = 4 / 3 }: { aspect?: number }) {
+  return (
+    <div
+      className="landing-gallery-card landing-gallery-skeleton"
+      style={{ aspectRatio: String(aspect), height: 'auto' }}
+      aria-hidden
+    />
+  )
+}
+
+function GalleryProjectCard({
+  project,
+  onOpen,
+}: {
+  project: ProjectSummary
+  onOpen: (id: string) => void
+}) {
+  const [mediaLoaded, setMediaLoaded] = useState(false)
+
+  const inset = Math.max(0, Math.min(0.5, project.viewportInsetRight || 0))
+  const aspect = Math.max(0.5, (project.viewportAspect || 1) * (1 - inset))
+  const iframeWidthPct = 100 / (1 - inset)
+  const embedScale = GALLERY_EMBED_SCALE
+
+  useEffect(() => {
+    setMediaLoaded(false)
+
+    function onEmbedReady(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return
+      const data = event.data as { type?: string; projectId?: string } | null
+      if (data?.type !== 'openmockup:embed-ready' || data.projectId !== project.id) return
+      setMediaLoaded(true)
+    }
+
+    window.addEventListener('message', onEmbedReady)
+    const fallback = window.setTimeout(() => setMediaLoaded(true), 8000)
+
+    return () => {
+      window.removeEventListener('message', onEmbedReady)
+      window.clearTimeout(fallback)
+    }
+  }, [project.id])
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(project.id)}
+      className={`landing-gallery-card${mediaLoaded ? '' : ' landing-gallery-card-loading'}`}
+      style={{
+        padding: 0,
+        border: 'none',
+        background: '#0a0614',
+        cursor: 'pointer',
+        textAlign: 'left',
+        height: 'auto',
+        aspectRatio: String(aspect),
+        overflow: 'hidden',
+      }}
+      aria-label={`Open ${project.name} in studio`}
+      aria-busy={mediaLoaded ? undefined : true}
+    >
+      <div
+        className="landing-gallery-card-skeleton"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 2,
+          opacity: mediaLoaded ? 0 : 1,
+          transition: 'opacity 0.4s ease',
+          pointerEvents: 'none',
+        }}
+        aria-hidden={mediaLoaded}
+      />
+      <iframe
+        src={`?project=${project.id}&embed=1`}
+        title={project.name}
+        loading="lazy"
+        className="landing-gallery-card-media landing-gallery-card-embed"
+        style={{
+          width: `${iframeWidthPct * embedScale}%`,
+          height: `${embedScale * 100}%`,
+          border: 'none',
+          display: 'block',
+          pointerEvents: 'none',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          zIndex: 1,
+          transform: `scale(${1 / embedScale})`,
+          transformOrigin: 'top left',
+          visibility: mediaLoaded ? 'visible' : 'hidden',
+          opacity: mediaLoaded ? 1 : 0,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          top: 16,
+          left: 16,
+          zIndex: 3,
+          opacity: mediaLoaded ? 1 : 0,
+          transition: 'opacity 0.35s ease',
+        }}
+      >
+        <span style={{
+          padding: '5px 11px', borderRadius: 999,
+          background: 'rgba(0,0,0,.45)',
+          fontSize: 12, fontWeight: 500, color: '#fff',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          border: '1px solid rgba(255,255,255,.15)',
+        }}>{project.name}</span>
+      </div>
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 16,
+          right: 16,
+          zIndex: 3,
+          opacity: mediaLoaded ? 1 : 0,
+          transition: 'opacity 0.35s ease',
+        }}
+      >
+        <span style={{
+          padding: '5px 11px', borderRadius: 999,
+          background: 'rgba(110,75,255,.6)',
+          fontSize: 12, fontWeight: 600, color: '#fff',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+        }}>Open ↗</span>
+      </div>
+    </button>
+  )
+}
 
 // Minimal CSS phone shape rendered with divs
 function PhoneShape({ scale = 1, tilt = 0 }: { scale?: number; tilt?: number }) {
@@ -171,6 +304,7 @@ function useReveal<T extends HTMLElement>() {
 
 export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [galleryLoading, setGalleryLoading] = useState(true)
   const [publicProjects, setPublicProjects] = useState<ProjectSummary[]>([])
   const featuresHeaderRef = useReveal<HTMLDivElement>()
   const featuresGridRef = useReveal<HTMLDivElement>()
@@ -179,7 +313,10 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
   const ctaCardRef = useReveal<HTMLDivElement>()
 
   useEffect(() => {
-    projectStore.listPublic(3).then(setPublicProjects).catch(() => setPublicProjects([]))
+    projectStore.listPublic(3)
+      .then(setPublicProjects)
+      .catch(() => setPublicProjects([]))
+      .finally(() => setGalleryLoading(false))
   }, [])
 
   return (
@@ -412,102 +549,12 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
           }}>Explore gallery →</button>
         </div>
         <div ref={galleryGridRef} className="landing-gallery-grid landing-reveal" data-delay="1">
-          {publicProjects.length > 0
-            ? publicProjects.map((p) => {
-                // Clamp defensively: a stale snapshot may carry an absurd inset
-                // (e.g. measured on a narrow window) that would otherwise render
-                // the card as a tall sliver.
-                const inset = Math.max(0, Math.min(0.5, p.viewportInsetRight || 0))
-                // Thumbnails are captured at the visible viewport (panel area
-                // already cropped), so the card aspect equals viewportAspect * (1-inset).
-                const aspect = Math.max(0.5, (p.viewportAspect || 1) * (1 - inset))
-                const iframeWidthPct = 100 / (1 - inset)
-                return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => onEnter(p.id)}
-                  className="landing-gallery-card"
-                  style={{
-                    padding: 0,
-                    border: 'none',
-                    background: '#000',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    height: 'auto',
-                    aspectRatio: String(aspect),
-                    overflow: 'hidden',
-                  }}
-                  aria-label={`Open ${p.name} in studio`}
-                >
-                  {p.thumbnail ? (
-                    <img
-                      src={p.thumbnail}
-                      alt={p.name}
-                      loading="lazy"
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        display: 'block',
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                      }}
-                    />
-                  ) : (
-                    <iframe
-                      src={`?project=${p.id}&embed=1`}
-                      title={p.name}
-                      loading="lazy"
-                      style={{
-                        width: `${iframeWidthPct}%`, height: '100%',
-                        border: 'none', display: 'block',
-                        pointerEvents: 'none',
-                        position: 'absolute', top: 0, left: 0,
-                      }}
-                    />
-                  )}
-                  <div style={{ position: 'absolute', top: 16, left: 16 }}>
-                    <span style={{
-                      padding: '5px 11px', borderRadius: 999,
-                      background: 'rgba(0,0,0,.45)',
-                      fontSize: 12, fontWeight: 500, color: '#fff',
-                      backdropFilter: 'blur(10px)',
-                      WebkitBackdropFilter: 'blur(10px)',
-                      border: '1px solid rgba(255,255,255,.15)',
-                    }}>{p.name}</span>
-                  </div>
-                  <div style={{ position: 'absolute', bottom: 16, right: 16 }}>
-                    <span style={{
-                      padding: '5px 11px', borderRadius: 999,
-                      background: 'rgba(110,75,255,.6)',
-                      fontSize: 12, fontWeight: 600, color: '#fff',
-                      backdropFilter: 'blur(10px)',
-                      WebkitBackdropFilter: 'blur(10px)',
-                    }}>Open ↗</span>
-                  </div>
-                </button>
-                )
-              })
-            : gallery.map((g) => (
-                <div key={g.handle} className="landing-gallery-card">
-                  <img
-                    src={g.img}
-                    alt={`Mockup by ${g.handle}`}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                  />
-                  <div style={{ position: 'absolute', top: 16, left: 16 }}>
-                    <span style={{
-                      padding: '5px 11px', borderRadius: 999,
-                      background: 'rgba(0,0,0,.35)',
-                      fontSize: 12, fontWeight: 500, color: '#fff',
-                      backdropFilter: 'blur(10px)',
-                      WebkitBackdropFilter: 'blur(10px)',
-                      border: '1px solid rgba(255,255,255,.15)',
-                    }}>{g.handle}</span>
-                  </div>
-                </div>
+          {galleryLoading
+            ? Array.from({ length: GALLERY_SKELETON_COUNT }, (_, i) => (
+                <GallerySkeleton key={`skeleton-${i}`} />
+              ))
+            : publicProjects.map((p) => (
+                <GalleryProjectCard key={p.id} project={p} onOpen={onEnter} />
               ))}
         </div>
       </section>

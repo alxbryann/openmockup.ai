@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Scene } from './Scene'
 import { useStore } from './store'
 import { projectStore, type Project } from './projectStore'
@@ -36,16 +36,35 @@ export default function EmbedView({ projectId }: Props) {
     }
   }, [projectId, hydrate, setAutoRotate, setCameraPanFree])
 
+  const embedDpr = typeof window !== 'undefined'
+    ? Math.min(3, Math.max(2, window.devicePixelRatio))
+    : 2
+
+  const notifyParentReady = useCallback(() => {
+    if (!isInIframe || window.parent === window) return
+    window.parent.postMessage(
+      { type: 'openmockup:embed-ready', projectId },
+      window.location.origin,
+    )
+  }, [isInIframe, projectId])
+
+  const shellStyle = {
+    position: 'relative' as const,
+    width: '100%',
+    height: isInIframe ? '100%' : '100vh',
+    flex: isInIframe ? 1 : undefined,
+    minHeight: isInIframe ? 0 : undefined,
+    background: '#0a0614',
+  }
+
   if (status === 'missing') {
     return (
       <div
         style={{
-          width: '100%',
-          height: '100vh',
+          ...shellStyle,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#0a0a0a',
           color: 'rgba(255,255,255,.5)',
           fontFamily: 'var(--font-sans)',
           fontSize: 14,
@@ -56,9 +75,13 @@ export default function EmbedView({ projectId }: Props) {
     )
   }
 
+  if (status === 'loading') {
+    return <div className="landing-gallery-embed-skeleton" style={shellStyle} aria-hidden />
+  }
+
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100vh', background: '#000' }}>
-      <Scene />
+    <div style={shellStyle}>
+      <Scene dpr={embedDpr} onReady={notifyParentReady} />
       {project && !isInIframe && (
         <a
           href={`?studio&project=${project.id}`}

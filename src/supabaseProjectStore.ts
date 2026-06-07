@@ -127,6 +127,7 @@ export class SupabaseProjectStore implements ProjectStore {
           positionX: 0,
           positionY: 0,
           positionZ: 0,
+          deviceScale: 1,
         },
       ],
       bgColor: '#ffffff',

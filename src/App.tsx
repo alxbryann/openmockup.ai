@@ -93,6 +93,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     setActiveDeviceId,
     updateDevice,
     setDeviceRotationAxis,
+    setDeviceScale,
     resetDeviceRotation,
     deviceDragMode,
     setDeviceDragMode,
@@ -1069,7 +1070,23 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                 </>
               )}
 
-              <SubLabel className={devices.length > 1 ? 'mt-3' : ''}>Profundidad (Z)</SubLabel>
+              <SubLabel className={devices.length > 1 ? 'mt-3' : ''}>Altura (Y)</SubLabel>
+              <label className="flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
+                <span className="w-12 shrink-0 tabular-nums">
+                  {activeDevice.positionY > 0 ? '+' : ''}{Math.round(activeDevice.positionY)}
+                </span>
+                <input
+                  type="range"
+                  min={-40}
+                  max={40}
+                  step={0.5}
+                  value={activeDevice.positionY}
+                  onChange={(e) => updateDevice(activeDevice.id, { positionY: Number(e.target.value) })}
+                  className="min-w-0 flex-1 accent-[var(--accent)]"
+                />
+              </label>
+
+              <SubLabel className="mt-3">Profundidad (Z)</SubLabel>
               <label className="flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
                 <span className="w-12 shrink-0 tabular-nums">
                   {activeDevice.positionZ > 0 ? '+' : ''}{Math.round(activeDevice.positionZ)}
@@ -1090,6 +1107,20 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
               >
                 Valores negativos = más alejado. En modo Mover: Alt+arrastre ajusta Z.
               </p>
+
+              <SubLabel className="mt-3">Tamaño</SubLabel>
+              <label className="flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
+                <span className="w-12 shrink-0 tabular-nums">{activeDevice.deviceScale.toFixed(2)}×</span>
+                <input
+                  type="range"
+                  min={0.25}
+                  max={4}
+                  step={0.05}
+                  value={activeDevice.deviceScale}
+                  onChange={(e) => setDeviceScale(activeDevice.id, Number(e.target.value))}
+                  className="min-w-0 flex-1 accent-[var(--accent)]"
+                />
+              </label>
 
               <SubLabel className="mt-3">
                 Rotación · dispositivo {devices.findIndex((d) => d.id === activeDeviceId) + 1}

@@ -155,6 +155,21 @@ const STUDIO_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'set_device_position_y',
+      description: 'Set vertical position (height) of a device. Range: -40 (down) to 40 (up), 0 = center.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          index: { type: 'integer', minimum: 0 },
+          y: { type: 'number' },
+        },
+        required: ['index', 'y'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'set_device_position_z',
       description: 'Set depth (Z) position of a device. Range: -40 (far back / away from camera) to 40 (closer), 0 = default plane.',
       parameters: {
@@ -164,6 +179,21 @@ const STUDIO_TOOLS = [
           z: { type: 'number' },
         },
         required: ['index', 'z'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'set_device_scale',
+      description: 'Set the size of a device. 1 = default, 0.5 = half size, 2 = double size.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          index: { type: 'integer', minimum: 0 },
+          scale: { type: 'number', minimum: 0.25, maximum: 4, description: 'Uniform scale multiplier' },
+        },
+        required: ['index', 'scale'],
       },
     },
   },
@@ -286,11 +316,23 @@ function executeTool(name: string, input: Record<string, unknown>): string {
         store.updateDevice(devices[idx].id, { positionX: Number(input.x) })
         return `Device ${idx} X → ${input.x}`
       }
+      case 'set_device_position_y': {
+        const idx = Number(input.index)
+        if (idx < 0 || idx >= devices.length) return `Error: index ${idx} out of range`
+        store.updateDevice(devices[idx].id, { positionY: Number(input.y) })
+        return `Device ${idx} Y → ${input.y}`
+      }
       case 'set_device_position_z': {
         const idx = Number(input.index)
         if (idx < 0 || idx >= devices.length) return `Error: index ${idx} out of range`
         store.updateDevice(devices[idx].id, { positionZ: Number(input.z) })
         return `Device ${idx} Z → ${input.z}`
+      }
+      case 'set_device_scale': {
+        const idx = Number(input.index)
+        if (idx < 0 || idx >= devices.length) return `Error: index ${idx} out of range`
+        store.setDeviceScale(devices[idx].id, Number(input.scale))
+        return `Device ${idx} scale → ${input.scale}×`
       }
       case 'set_auto_rotate': {
         store.setAutoRotate(Boolean(input.enabled))
@@ -315,7 +357,7 @@ function buildSystemPrompt(): string {
       : devices
           .map((d, i) => {
             const rot = d.deviceRotation.map((r) => `${Math.round((r * 180) / Math.PI)}°`)
-            return `  [${i}] ${d.deviceKind} | color: ${d.deviceColor} | rotation x:${rot[0]} y:${rot[1]} z:${rot[2]} | posX: ${d.positionX} posZ: ${d.positionZ}`
+            return `  [${i}] ${d.deviceKind} | color: ${d.deviceColor} | rotation x:${rot[0]} y:${rot[1]} z:${rot[2]} | posX: ${d.positionX} posY: ${d.positionY} posZ: ${d.positionZ} | scale: ${d.deviceScale}×`
           })
           .join('\n')
 
@@ -339,7 +381,9 @@ Or any hex color: #0a0a0a, #ffffff, #0f172a, etc.
 
 COMPOSITION TIPS:
 - Multiple devices: stagger X (e.g. -10, 0, 10) and Z (e.g. 0, -8, -16) for depth layering.
+- Use set_device_position_y to move a device up (positive Y) or down (negative Y).
 - Use set_device_position_z for moving devices back (negative Z) or forward (positive Z).
+- Use set_device_scale for size hierarchy: hero device at 1.2–1.5×, background devices at 0.6–0.8×.
 - Slight Y rotation (15–30°) = dynamic. Heavy Y (45–60°) = dramatic hero shot.
 - Dark bg (#0a0a0a, #0f172a) + light devices = premium.
 - Light bg (#f4f4f5, #ffffff) + dark devices = clean editorial.

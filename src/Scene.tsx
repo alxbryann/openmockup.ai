@@ -60,6 +60,7 @@ function DeviceGroup({
       ref={groupRef}
       position={[device.positionX, device.positionY, device.positionZ]}
       rotation={device.deviceRotation}
+      scale={[device.deviceScale, device.deviceScale, device.deviceScale]}
       onPointerDown={interactive ? (e) => onPointerDown(e, device.id) : undefined}
     >
       {device.deviceKind === 'phone' ? (

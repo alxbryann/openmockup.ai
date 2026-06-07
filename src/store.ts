@@ -2,6 +2,13 @@ import { create } from 'zustand'
 
 const TAU = Math.PI * 2
 
+export const DEVICE_SCALE_MIN = 0.25
+export const DEVICE_SCALE_MAX = 4
+
+function clampDeviceScale(scale: number): number {
+  return Math.min(DEVICE_SCALE_MAX, Math.max(DEVICE_SCALE_MIN, scale))
+}
+
 function wrapCameraRoll(radians: number): number {
   let a = radians % TAU
   if (a <= -Math.PI) a += TAU
@@ -34,6 +41,8 @@ export type DeviceInstance = {
   positionY: number
   /** Depth in world units. Negative = further from camera (into the scene). */
   positionZ: number
+  /** Uniform scale multiplier. 1 = default size. */
+  deviceScale: number
 }
 
 function makeDevice(positionX = 0): DeviceInstance {
@@ -50,6 +59,7 @@ function makeDevice(positionX = 0): DeviceInstance {
     positionX,
     positionY: 0,
     positionZ: 0,
+    deviceScale: 1,
   }
 }
 
@@ -77,6 +87,7 @@ type State = {
   updateDevice: (id: string, patch: Partial<Omit<DeviceInstance, 'id'>>) => void
   setDeviceRotation: (id: string, r: [number, number, number]) => void
   setDeviceRotationAxis: (id: string, axis: 0 | 1 | 2, radians: number) => void
+  setDeviceScale: (id: string, scale: number) => void
   resetDeviceRotation: (id: string) => void
   tickAutoRotate: (step: number) => void
   setCaptureSceneAtSize: (fn: State['captureSceneAtSize']) => void
@@ -171,6 +182,13 @@ export const useStore = create<State>((set) => ({
       }),
     })),
 
+  setDeviceScale: (id, scale) =>
+    set((s) => ({
+      devices: s.devices.map((d) =>
+        d.id === id ? { ...d, deviceScale: clampDeviceScale(scale) } : d,
+      ),
+    })),
+
   resetDeviceRotation: (id) =>
     set((s) => ({
       devices: s.devices.map((d) => (d.id === id ? { ...d, deviceRotation: [0, 0, 0] } : d)),
@@ -212,6 +230,8 @@ export const useStore = create<State>((set) => ({
           videoStartTime: d.videoStartTime ?? 0,
           videoEndTime: d.videoEndTime ?? null,
           positionZ: d.positionZ ?? 0,
+          positionY: d.positionY ?? 0,
+          deviceScale: clampDeviceScale(d.deviceScale ?? 1),
           deviceRotation: [
             wrapSignedPi(d.deviceRotation[0]),
             wrapSignedPi(d.deviceRotation[1]),

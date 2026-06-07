@@ -2,20 +2,22 @@ import { useState, useRef, useEffect } from 'react'
 import { useStore } from './store'
 import { GRADIENT_PRESETS } from './gradients'
 
-const API_KEY_STORAGE = 'openmockup.anthropicKey.v1'
-const ENV_API_KEY = import.meta.env.VITE_ANTHROPIC_KEY as string | undefined
+const API_KEY_STORAGE = 'openmockup.deepseekKey.v1'
+const ENV_API_KEY = import.meta.env.VITE_DEEPSEEK_KEY as string | undefined
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-interface TextBlock { type: 'text'; text: string }
-interface ToolUseBlock { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-interface ToolResultBlock { type: 'tool_result'; tool_use_id: string; content: string }
-
-type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock
+interface ToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
 
 interface ApiMessage {
-  role: 'user' | 'assistant'
-  content: ContentBlock[] | string
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content?: string | null
+  tool_calls?: ToolCall[]
+  tool_call_id?: string
 }
 
 interface UIMessage {
@@ -27,111 +29,141 @@ interface UIMessage {
   streaming?: boolean
 }
 
-interface StreamEvent {
-  type: string
-  index?: number
-  delta?: { type?: string; text?: string; partial_json?: string }
-  content_block?: { type: string; id?: string; name?: string }
+interface StreamChunk {
+  choices: Array<{
+    delta: {
+      content?: string
+      tool_calls?: Array<{
+        index: number
+        id?: string
+        function?: { name?: string; arguments?: string }
+      }>
+    }
+  }>
 }
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
 
 const STUDIO_TOOLS = [
   {
-    name: 'add_device',
-    description: 'Add a phone (iPhone) or mac (MacBook) to the 3D scene.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        kind: { type: 'string', enum: ['phone', 'mac'], description: 'phone = iPhone 17, mac = MacBook' },
-      },
-      required: ['kind'],
-    },
-  },
-  {
-    name: 'remove_device',
-    description: 'Remove a device by 0-based index. Cannot remove the last remaining device.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        index: { type: 'integer', minimum: 0, description: '0-based device index' },
-      },
-      required: ['index'],
-    },
-  },
-  {
-    name: 'set_background',
-    description: 'Set the scene background. Can be a solid hex color or a CSS gradient string.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        value: {
-          type: 'string',
-          description: 'Hex color e.g. "#0a0a0a" or CSS gradient e.g. "linear-gradient(135deg, #8B5CF6, #EC4899)"',
+    type: 'function' as const,
+    function: {
+      name: 'add_device',
+      description: 'Add a phone (iPhone) or mac (MacBook) to the 3D scene.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          kind: { type: 'string', enum: ['phone', 'mac'], description: 'phone = iPhone 17, mac = MacBook' },
         },
+        required: ['kind'],
       },
-      required: ['value'],
     },
   },
   {
-    name: 'set_device_color',
-    description: 'Set the frame/body color of a device.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        index: { type: 'integer', minimum: 0 },
-        hex: { type: 'string', description: 'Hex color code, e.g. "#DFCEEA"' },
+    type: 'function' as const,
+    function: {
+      name: 'remove_device',
+      description: 'Remove a device by 0-based index. Cannot remove the last remaining device.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          index: { type: 'integer', minimum: 0, description: '0-based device index' },
+        },
+        required: ['index'],
       },
-      required: ['index', 'hex'],
     },
   },
   {
-    name: 'set_device_type',
-    description: 'Change a device between phone (iPhone) and mac (MacBook).',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        index: { type: 'integer', minimum: 0 },
-        kind: { type: 'string', enum: ['phone', 'mac'] },
+    type: 'function' as const,
+    function: {
+      name: 'set_background',
+      description: 'Set the scene background. Can be a solid hex color or a CSS gradient string.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          value: {
+            type: 'string',
+            description: 'Hex color e.g. "#0a0a0a" or CSS gradient e.g. "linear-gradient(135deg, #8B5CF6, #EC4899)"',
+          },
+        },
+        required: ['value'],
       },
-      required: ['index', 'kind'],
     },
   },
   {
-    name: 'set_device_rotation',
-    description: 'Set the 3D rotation of a device in degrees. x=tilt fwd/back, y=spin left/right, z=lean sideways.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        index: { type: 'integer', minimum: 0 },
-        x: { type: 'number', description: 'degrees, -180 to 180' },
-        y: { type: 'number', description: 'degrees, -180 to 180' },
-        z: { type: 'number', description: 'degrees, -180 to 180' },
+    type: 'function' as const,
+    function: {
+      name: 'set_device_color',
+      description: 'Set the frame/body color of a device.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          index: { type: 'integer', minimum: 0 },
+          hex: { type: 'string', description: 'Hex color code, e.g. "#DFCEEA"' },
+        },
+        required: ['index', 'hex'],
       },
-      required: ['index', 'x', 'y', 'z'],
     },
   },
   {
-    name: 'set_device_position_x',
-    description: 'Set horizontal position of a device. Range: -40 (far left) to 40 (far right), 0 = center.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        index: { type: 'integer', minimum: 0 },
-        x: { type: 'number' },
+    type: 'function' as const,
+    function: {
+      name: 'set_device_type',
+      description: 'Change a device between phone (iPhone) and mac (MacBook).',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          index: { type: 'integer', minimum: 0 },
+          kind: { type: 'string', enum: ['phone', 'mac'] },
+        },
+        required: ['index', 'kind'],
       },
-      required: ['index', 'x'],
     },
   },
   {
-    name: 'set_auto_rotate',
-    description: 'Enable or disable continuous Y-axis auto-rotation on all devices.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        enabled: { type: 'boolean' },
+    type: 'function' as const,
+    function: {
+      name: 'set_device_rotation',
+      description: 'Set the 3D rotation of a device in degrees. x=tilt fwd/back, y=spin left/right, z=lean sideways.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          index: { type: 'integer', minimum: 0 },
+          x: { type: 'number', description: 'degrees, -180 to 180' },
+          y: { type: 'number', description: 'degrees, -180 to 180' },
+          z: { type: 'number', description: 'degrees, -180 to 180' },
+        },
+        required: ['index', 'x', 'y', 'z'],
       },
-      required: ['enabled'],
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'set_device_position_x',
+      description: 'Set horizontal position of a device. Range: -40 (far left) to 40 (far right), 0 = center.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          index: { type: 'integer', minimum: 0 },
+          x: { type: 'number' },
+        },
+        required: ['index', 'x'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'set_auto_rotate',
+      description: 'Enable or disable continuous Y-axis auto-rotation on all devices.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          enabled: { type: 'boolean' },
+        },
+        required: ['enabled'],
+      },
     },
   },
 ]
@@ -142,20 +174,17 @@ async function* streamMessages(
   apiKey: string,
   messages: ApiMessage[],
   system: string,
-): AsyncGenerator<StreamEvent> {
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+): AsyncGenerator<StreamChunk> {
+  const resp = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: 'deepseek-chat',
       max_tokens: 1024,
-      system,
-      messages,
+      messages: [{ role: 'system', content: system }, ...messages],
       tools: STUDIO_TOOLS,
       stream: true,
     }),
@@ -184,7 +213,7 @@ async function* streamMessages(
       if (line.startsWith('data: ')) {
         const raw = line.slice(6).trim()
         if (raw === '[DONE]') return
-        try { yield JSON.parse(raw) } catch { /* malformed chunk */ }
+        try { yield JSON.parse(raw) as StreamChunk } catch { /* malformed chunk */ }
       }
     }
   }
@@ -363,71 +392,74 @@ export function AgentPanel() {
       ])
 
       let fullText = ''
-      const pendingTools: ToolUseBlock[] = []
-      const blockMeta: Record<number, { type: string; id?: string; name?: string }> = {}
-      const partialJson: Record<number, string> = {}
+      const pendingTools: ToolCall[] = []
+      const partialArgs: Record<number, { id: string; name: string; arguments: string }> = {}
 
-      for await (const event of streamMessages(apiKey, messages, buildSystemPrompt())) {
-        if (event.type === 'content_block_start' && event.content_block) {
-          blockMeta[event.index!] = event.content_block
+      for await (const chunk of streamMessages(apiKey, messages, buildSystemPrompt())) {
+        const delta = chunk.choices[0]?.delta
+        if (!delta) continue
+
+        if (delta.content) {
+          fullText += delta.content
+          setUiMessages((prev) =>
+            prev.map((m) => (m.id === assistantId ? { ...m, text: fullText } : m)),
+          )
         }
 
-        if (event.type === 'content_block_delta' && event.delta) {
-          if (event.delta.type === 'text_delta' && event.delta.text) {
-            fullText += event.delta.text
-            setUiMessages((prev) =>
-              prev.map((m) => (m.id === assistantId ? { ...m, text: fullText } : m)),
-            )
-          }
-          if (event.delta.type === 'input_json_delta' && event.delta.partial_json != null) {
-            partialJson[event.index!] = (partialJson[event.index!] ?? '') + event.delta.partial_json
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const slot = partialArgs[tc.index] ?? { id: '', name: '', arguments: '' }
+            if (tc.id) slot.id = tc.id
+            if (tc.function?.name) slot.name = tc.function.name
+            if (tc.function?.arguments) slot.arguments += tc.function.arguments
+            partialArgs[tc.index] = slot
           }
         }
-
-        if (event.type === 'content_block_stop') {
-          const meta = blockMeta[event.index!]
-          if (meta?.type === 'tool_use') {
-            try {
-              const toolInput = JSON.parse(partialJson[event.index!] ?? '{}') as Record<string, unknown>
-              pendingTools.push({ type: 'tool_use', id: meta.id!, name: meta.name!, input: toolInput })
-            } catch { /* malformed JSON */ }
-          }
-        }
-
-        if (event.type === 'message_stop') break
       }
 
-      // Finalize streaming assistant bubble
+      for (const slot of Object.values(partialArgs)) {
+        if (slot.id && slot.name) {
+          pendingTools.push({
+            id: slot.id,
+            type: 'function',
+            function: { name: slot.name, arguments: slot.arguments || '{}' },
+          })
+        }
+      }
+
       setUiMessages((prev) =>
         prev.map((m) => (m.id === assistantId ? { ...m, streaming: false } : m)),
       )
 
-      // Build assistant API message
-      const assistantContent: ContentBlock[] = []
-      if (fullText) assistantContent.push({ type: 'text', text: fullText })
-      assistantContent.push(...pendingTools)
-      messages = [...messages, { role: 'assistant', content: assistantContent }]
+      const assistantMessage: ApiMessage = {
+        role: 'assistant',
+        content: fullText || null,
+        ...(pendingTools.length > 0 ? { tool_calls: pendingTools } : {}),
+      }
+      messages = [...messages, assistantMessage]
 
       if (pendingTools.length === 0) {
         setApiMessages(messages)
         break
       }
 
-      // Execute tools and collect results
-      const results: ToolResultBlock[] = []
       for (const tool of pendingTools) {
+        let toolInput: Record<string, unknown> = {}
+        try {
+          toolInput = JSON.parse(tool.function.arguments) as Record<string, unknown>
+        } catch { /* malformed JSON */ }
+
         setUiMessages((prev) => [
           ...prev,
           {
             id: crypto.randomUUID(),
             type: 'tool_use',
-            toolName: tool.name,
-            toolInput: tool.input,
+            toolName: tool.function.name,
+            toolInput,
           },
         ])
 
-        const result = executeTool(tool.name, tool.input)
-        results.push({ type: 'tool_result', tool_use_id: tool.id, content: result })
+        const result = executeTool(tool.function.name, toolInput)
 
         setUiMessages((prev) => [
           ...prev,
@@ -437,9 +469,13 @@ export function AgentPanel() {
             text: result,
           },
         ])
+
+        messages = [
+          ...messages,
+          { role: 'tool', tool_call_id: tool.id, content: result },
+        ]
       }
 
-      messages = [...messages, { role: 'user', content: results }]
       setApiMessages(messages)
     }
   }
@@ -497,7 +533,7 @@ export function AgentPanel() {
               letterSpacing: '0.01em',
             }}
           >
-            Claude
+            DeepSeek
           </span>
           <span
             style={{
@@ -509,7 +545,7 @@ export function AgentPanel() {
               padding: '2px 5px',
             }}
           >
-            sonnet-4-6
+            chat
           </span>
         </div>
         <div style={{ display: 'flex', gap: '0.25rem' }}>
@@ -569,7 +605,7 @@ export function AgentPanel() {
                 margin: 0,
               }}
             >
-              Describe any mockup and Claude will compose it live.
+              Describe any mockup and DeepSeek will compose it live.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%', maxWidth: 260 }}>
               {SUGGESTIONS.map((s) => (

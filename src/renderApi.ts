@@ -14,6 +14,7 @@ export type RenderMockupDevice = {
   deviceRotation?: [number, number, number]
   positionX?: number
   positionY?: number
+  positionZ?: number
 }
 
 export type RenderMockupOpts = {
@@ -88,6 +89,7 @@ function waitFrames(n: number): Promise<void> {
       ...(cfg.deviceRotation ? { deviceRotation: cfg.deviceRotation } : {}),
       ...(typeof cfg.positionX === 'number' ? { positionX: cfg.positionX } : {}),
       ...(typeof cfg.positionY === 'number' ? { positionY: cfg.positionY } : {}),
+      ...(typeof cfg.positionZ === 'number' ? { positionZ: cfg.positionZ } : {}),
     })
   })
 

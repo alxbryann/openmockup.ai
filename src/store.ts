@@ -32,6 +32,8 @@ export type DeviceInstance = {
   deviceRotation: [number, number, number]
   positionX: number
   positionY: number
+  /** Depth in world units. Negative = further from camera (into the scene). */
+  positionZ: number
 }
 
 function makeDevice(positionX = 0): DeviceInstance {
@@ -47,6 +49,7 @@ function makeDevice(positionX = 0): DeviceInstance {
     deviceRotation: [0, 0, 0],
     positionX,
     positionY: 0,
+    positionZ: 0,
   }
 }
 
@@ -208,6 +211,7 @@ export const useStore = create<State>((set) => ({
             d.screenMediaKind ?? (d.screenshot ? 'image' : null),
           videoStartTime: d.videoStartTime ?? 0,
           videoEndTime: d.videoEndTime ?? null,
+          positionZ: d.positionZ ?? 0,
           deviceRotation: [
             wrapSignedPi(d.deviceRotation[0]),
             wrapSignedPi(d.deviceRotation[1]),

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { projectStore, type ProjectSummary } from './projectStore'
+import { SUPABASE_ENABLED } from './useAuth'
 
 type Props = {
   onEnter: (pid?: string | null) => void
@@ -363,9 +364,9 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
                 Sign out
               </button>
             </div>
-          ) : (
+          ) : SUPABASE_ENABLED ? (
             <button type="button" className="landing-nav-signin" onClick={onSignIn}>Sign in</button>
-          )}
+          ) : null}
           <button
             type="button"
             className="landing-nav-menu-btn"

@@ -58,7 +58,7 @@ function DeviceGroup({
   return (
     <group
       ref={groupRef}
-      position={[device.positionX, device.positionY, 0]}
+      position={[device.positionX, device.positionY, device.positionZ]}
       rotation={device.deviceRotation}
       onPointerDown={interactive ? (e) => onPointerDown(e, device.id) : undefined}
     >
@@ -123,13 +123,19 @@ function DeviceScene({
       if (!device) return
 
       if (dragModeRef.current === 'move') {
-        // Pixel → world: at device plane (z=0), visible height = 2 * dist * tan(fov/2)
+        // Pixel → world: at device plane, visible height = 2 * dist * tan(fov/2)
         const visibleH = 2 * orbitDistanceRef.current * Math.tan((CAMERA_FOV_DEG / 2) * (Math.PI / 180))
         const sens = visibleH / sizeRef.current.height
-        updateDevice(did, {
-          positionX: device.positionX + dx * sens,
-          positionY: device.positionY - dy * sens,
-        })
+        if (e.altKey) {
+          updateDevice(did, {
+            positionZ: device.positionZ - dy * sens,
+          })
+        } else {
+          updateDevice(did, {
+            positionX: device.positionX + dx * sens,
+            positionY: device.positionY - dy * sens,
+          })
+        }
       } else if (e.shiftKey) {
         const [rx, ry, rz] = device.deviceRotation
         setDeviceRotation(did, [rx, ry, rz - dx * DEVICE_DRAG_SENS])

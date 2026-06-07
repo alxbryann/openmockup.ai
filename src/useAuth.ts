@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { supabase } from './supabase'
+import { isSupabaseConfigured, supabase } from './supabase'
 
-export const SUPABASE_ENABLED = !!import.meta.env.VITE_SUPABASE_URL
+export const SUPABASE_ENABLED = isSupabaseConfigured
 
 export type AuthState = {
   user: User | null

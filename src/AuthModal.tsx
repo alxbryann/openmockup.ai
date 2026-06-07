@@ -3,7 +3,8 @@ import { getAuthRedirectUrl } from './authRedirect'
 import { supabase } from './supabase'
 import { SUPABASE_ENABLED } from './useAuth'
 
-const AUTH_UNAVAILABLE = 'Authentication is not configured. Please try again later.'
+const AUTH_UNAVAILABLE =
+  'Authentication is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local, then restart the dev server.'
 
 type Tab = 'signin' | 'signup'
 

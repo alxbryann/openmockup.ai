@@ -1,4 +1,5 @@
 import type { DeviceInstance } from './store'
+import { isSupabaseConfigured } from './supabase'
 import { SupabaseProjectStore } from './supabaseProjectStore'
 
 export type ProjectSnapshot = {
@@ -80,6 +81,7 @@ function defaultSnapshot(): ProjectSnapshot {
         deviceRotation: [0, 0, 0],
         positionX: 0,
         positionY: 0,
+        positionZ: 0,
       },
     ],
     bgColor: '#ffffff',
@@ -183,7 +185,7 @@ class LocalProjectStore implements ProjectStore {
 }
 
 // Use Supabase when configured, otherwise fall back to localStorage
-export const projectStore: ProjectStore = import.meta.env.VITE_SUPABASE_URL
+export const projectStore: ProjectStore = isSupabaseConfigured
   ? new SupabaseProjectStore()
   : new LocalProjectStore()
 

@@ -1069,7 +1069,29 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                 </>
               )}
 
-              <SubLabel className={devices.length > 1 ? 'mt-3' : ''}>
+              <SubLabel className={devices.length > 1 ? 'mt-3' : ''}>Profundidad (Z)</SubLabel>
+              <label className="flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
+                <span className="w-12 shrink-0 tabular-nums">
+                  {activeDevice.positionZ > 0 ? '+' : ''}{Math.round(activeDevice.positionZ)}
+                </span>
+                <input
+                  type="range"
+                  min={-40}
+                  max={40}
+                  step={0.5}
+                  value={activeDevice.positionZ}
+                  onChange={(e) => updateDevice(activeDevice.id, { positionZ: Number(e.target.value) })}
+                  className="min-w-0 flex-1 accent-[var(--accent)]"
+                />
+              </label>
+              <p
+                className="mt-1 mb-0 leading-snug"
+                style={{ font: '400 11px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}
+              >
+                Valores negativos = más alejado. En modo Mover: Alt+arrastre ajusta Z.
+              </p>
+
+              <SubLabel className="mt-3">
                 Rotación · dispositivo {devices.findIndex((d) => d.id === activeDeviceId) + 1}
               </SubLabel>
               <p

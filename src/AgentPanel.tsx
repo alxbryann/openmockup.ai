@@ -155,6 +155,21 @@ const STUDIO_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'set_device_position_z',
+      description: 'Set depth (Z) position of a device. Range: -40 (far back / away from camera) to 40 (closer), 0 = default plane.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          index: { type: 'integer', minimum: 0 },
+          z: { type: 'number' },
+        },
+        required: ['index', 'z'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'set_auto_rotate',
       description: 'Enable or disable continuous Y-axis auto-rotation on all devices.',
       parameters: {
@@ -271,6 +286,12 @@ function executeTool(name: string, input: Record<string, unknown>): string {
         store.updateDevice(devices[idx].id, { positionX: Number(input.x) })
         return `Device ${idx} X → ${input.x}`
       }
+      case 'set_device_position_z': {
+        const idx = Number(input.index)
+        if (idx < 0 || idx >= devices.length) return `Error: index ${idx} out of range`
+        store.updateDevice(devices[idx].id, { positionZ: Number(input.z) })
+        return `Device ${idx} Z → ${input.z}`
+      }
       case 'set_auto_rotate': {
         store.setAutoRotate(Boolean(input.enabled))
         return `Auto-rotate ${input.enabled ? 'on' : 'off'}`
@@ -294,7 +315,7 @@ function buildSystemPrompt(): string {
       : devices
           .map((d, i) => {
             const rot = d.deviceRotation.map((r) => `${Math.round((r * 180) / Math.PI)}°`)
-            return `  [${i}] ${d.deviceKind} | color: ${d.deviceColor} | rotation x:${rot[0]} y:${rot[1]} z:${rot[2]} | posX: ${d.positionX}`
+            return `  [${i}] ${d.deviceKind} | color: ${d.deviceColor} | rotation x:${rot[0]} y:${rot[1]} z:${rot[2]} | posX: ${d.positionX} posZ: ${d.positionZ}`
           })
           .join('\n')
 
@@ -317,7 +338,8 @@ ${gradientList}
 Or any hex color: #0a0a0a, #ffffff, #0f172a, etc.
 
 COMPOSITION TIPS:
-- Multiple devices: stagger X positions (e.g. -10, 0, 10) for depth.
+- Multiple devices: stagger X (e.g. -10, 0, 10) and Z (e.g. 0, -8, -16) for depth layering.
+- Use set_device_position_z for moving devices back (negative Z) or forward (positive Z).
 - Slight Y rotation (15–30°) = dynamic. Heavy Y (45–60°) = dramatic hero shot.
 - Dark bg (#0a0a0a, #0f172a) + light devices = premium.
 - Light bg (#f4f4f5, #ffffff) + dark devices = clean editorial.

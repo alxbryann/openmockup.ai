@@ -150,6 +150,38 @@ body,
   pointer-events: none;
 }
 
+/* ── Skeleton loaders (project picker, header) ───────────── */
+.mockit-skeleton {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+}
+
+.mockit-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(196, 179, 255, 0.14) 45%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(196, 179, 255, 0.14) 55%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-position: -200% center;
+  animation: landing-shimmer 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mockit-skeleton::after {
+    animation: none;
+  }
+}
+
 /* ── Agent panel typing dots ─────────────────────────────── */
 .agent-dot {
   display: inline-block;

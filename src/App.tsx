@@ -178,7 +178,20 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
 
   const [activeProject, setActiveProject] = useState<Project | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // `true` while a project is being created/switched/loaded so we can show the
+  // loading splash and freeze autosave until the new scene has hydrated.
+  const [projectSwitching, setProjectSwitching] = useState(false)
   const projectReadyRef = useRef(false)
+  // The id of the project whose content currently lives in the store. This is
+  // the single source of truth that guards autosave: an in-flight save captures
+  // its own projectId and must only persist / update `activeProject` while this
+  // ref still matches — otherwise a stale save from the previous project could
+  // write the new scene's content into it (the "new project takes the other's
+  // name and overwrites it" bug) or clobber the header back to the old project.
+  const activeProjectIdRef = useRef<string | null>(null)
+  // Lock so rapid clicks on "New project" / a project row can't run two
+  // create/switch flows at once.
+  const projectTransitionRef = useRef(false)
   const autosaveDebounceRef = useRef<number | null>(null)
   const autosaveMaxWaitRef = useRef<number | null>(null)
 
@@ -216,6 +229,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         project = await projectStore.create()
       }
       if (cancelled) return
+      activeProjectIdRef.current = project.id
       hydrateFromSnapshot(project.snapshot)
       setActiveProject(project)
       projectStore.setLastOpenedId(project.id)
@@ -255,6 +269,9 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         window.clearTimeout(autosaveMaxWaitRef.current)
         autosaveMaxWaitRef.current = null
       }
+      // The store has already been re-hydrated for a different project — abandon
+      // this stale save so we don't write the new scene's content into the old id.
+      if (activeProjectIdRef.current !== projectId) return
       const s = useStore.getState()
       const snapshot = snapshotFromStoreState({
         devices: s.devices,
@@ -269,10 +286,20 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         viewportInsetRight: s.viewportInsetRight,
       })
       const thumbnail = await captureProjectThumbnail(s.bgColor, s.viewportInsetRight)
-      projectStore
-        .save(projectId, thumbnail !== null ? { snapshot, thumbnail } : { snapshot })
-        .then((p) => setActiveProject(p))
-        .catch((e) => console.error('autosave failed', e))
+      // Capturing the thumbnail is async; re-check before persisting in case the
+      // user switched projects while it ran.
+      if (activeProjectIdRef.current !== projectId) return
+      try {
+        const p = await projectStore.save(
+          projectId,
+          thumbnail !== null ? { snapshot, thumbnail } : { snapshot },
+        )
+        // Only refresh the active project if it is still the one we just saved;
+        // otherwise we'd clobber the header/active project back to the old one.
+        if (activeProjectIdRef.current === projectId) setActiveProject(p)
+      } catch (e) {
+        console.error('autosave failed', e)
+      }
     }
 
     if (autosaveDebounceRef.current != null) window.clearTimeout(autosaveDebounceRef.current)
@@ -301,36 +328,67 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
 
   const switchToProject = useCallback(
     async (id: string) => {
-      const p = await projectStore.get(id)
-      if (!p) return
+      if (projectTransitionRef.current) return
+      if (id === activeProjectIdRef.current) {
+        setPickerOpen(false)
+        return
+      }
+      projectTransitionRef.current = true
       projectReadyRef.current = false
-      hydrateFromSnapshot(p.snapshot)
-      setActiveProject(p)
-      projectStore.setLastOpenedId(p.id)
+      setProjectSwitching(true)
       setPickerOpen(false)
-      const q = new URLSearchParams(location.search)
-      q.set('project', p.id)
-      history.replaceState(null, '', `?${q.toString()}`)
-      requestAnimationFrame(() => {
-        projectReadyRef.current = true
-      })
+      try {
+        const p = await projectStore.get(id)
+        if (!p) return
+        // Claim the new id synchronously *before* hydrating so any autosave
+        // still in flight for the previous project bails instead of writing the
+        // new scene's content into the old id.
+        activeProjectIdRef.current = p.id
+        hydrateFromSnapshot(p.snapshot)
+        setActiveProject(p)
+        projectStore.setLastOpenedId(p.id)
+        const q = new URLSearchParams(location.search)
+        q.set('project', p.id)
+        history.replaceState(null, '', `?${q.toString()}`)
+      } catch (e) {
+        console.error('switch project failed', e)
+      } finally {
+        requestAnimationFrame(() => {
+          projectReadyRef.current = true
+          projectTransitionRef.current = false
+          setProjectSwitching(false)
+        })
+      }
     },
     [hydrateFromSnapshot],
   )
 
   const createAndOpen = useCallback(async () => {
+    if (projectTransitionRef.current) return
+    projectTransitionRef.current = true
     projectReadyRef.current = false
-    const p = await projectStore.create()
-    hydrateFromSnapshot(p.snapshot)
-    setActiveProject(p)
-    projectStore.setLastOpenedId(p.id)
+    setProjectSwitching(true)
     setPickerOpen(false)
-    const q = new URLSearchParams(location.search)
-    q.set('project', p.id)
-    history.replaceState(null, '', `?${q.toString()}`)
-    requestAnimationFrame(() => {
-      projectReadyRef.current = true
-    })
+    try {
+      const p = await projectStore.create()
+      // Claim the new id before hydrating (see switchToProject) so a lingering
+      // autosave from the previous project can't overwrite the fresh one.
+      activeProjectIdRef.current = p.id
+      hydrateFromSnapshot(p.snapshot)
+      setActiveProject(p)
+      projectStore.setLastOpenedId(p.id)
+      const q = new URLSearchParams(location.search)
+      q.set('project', p.id)
+      history.replaceState(null, '', `?${q.toString()}`)
+    } catch (e) {
+      console.error('create project failed', e)
+    } finally {
+      requestAnimationFrame(() => {
+        projectReadyRef.current = true
+        projectTransitionRef.current = false
+        setProjectSwitching(false)
+      })
+    }
   }, [hydrateFromSnapshot])
 
   const activeDevice = devices.find((d) => d.id === activeDeviceId) ?? devices[0]
@@ -531,8 +589,11 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col" style={{ background: 'var(--mockit-bg)' }}>
-      {/* Studio loading splash */}
-      <div className="mockit-loading-overlay" data-hidden={studioReady ? 'true' : 'false'}>
+      {/* Studio loading splash — also re-shown briefly while switching/creating a project */}
+      <div
+        className="mockit-loading-overlay"
+        data-hidden={studioReady && !projectSwitching ? 'true' : 'false'}
+      >
         <svg viewBox="0 0 40 40" width={52} height={52} style={{ flexShrink: 0 }} aria-hidden>
           <defs>
             <radialGradient id="ldr-main" cx="35%" cy="30%" r="70%">
@@ -551,7 +612,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         </svg>
         <div className="mockit-spinner" />
         <p style={{ font: '500 13px/1 var(--font-sans)', color: 'rgba(255,255,255,.35)', margin: 0, letterSpacing: '0.01em' }}>
-          Loading studio…
+          {studioReady ? 'Loading project…' : 'Loading studio…'}
         </p>
       </div>
       {/* Header */}
@@ -657,9 +718,17 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
               <path d="M3 7h18M3 12h18M3 17h18" strokeLinecap="round" />
             </svg>
-            <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {activeProject?.name ?? 'Loading…'}
-            </span>
+            {activeProject ? (
+              <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {activeProject.name}
+              </span>
+            ) : (
+              <span
+                className="mockit-skeleton"
+                aria-label="Loading project"
+                style={{ width: 96, height: 13, borderRadius: 5 }}
+              />
+            )}
             <span style={{ opacity: 0.4 }}>▾</span>
           </button>
           {studioView === 'normal' && (
@@ -1436,9 +1505,11 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         onCreate={createAndOpen}
         onClose={async () => {
           setPickerOpen(false)
-          if (activeProject) {
-            const refreshed = await projectStore.get(activeProject.id)
-            if (refreshed) setActiveProject(refreshed)
+          const id = activeProjectIdRef.current
+          if (id) {
+            const refreshed = await projectStore.get(id)
+            // Guard against a project switch landing mid-refresh.
+            if (refreshed && activeProjectIdRef.current === id) setActiveProject(refreshed)
           }
         }}
       />

@@ -159,7 +159,13 @@ export function ProjectPicker({ open, currentProjectId, onPick, onCreate, onClos
 
         <div style={{ overflow: 'auto', padding: 12, flex: 1 }}>
           {loading ? (
-            <p style={{ padding: 20, color: 'rgba(255,255,255,.5)', fontSize: 13 }}>Loading…</p>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }} aria-label="Loading projects" aria-busy="true">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <li key={i}>
+                  <ProjectRowSkeleton />
+                </li>
+              ))}
+            </ul>
           ) : items.length === 0 ? (
             <p style={{ padding: 20, color: 'rgba(255,255,255,.5)', fontSize: 13 }}>
               No saved projects yet. Click <strong>New project</strong> to start.
@@ -342,6 +348,31 @@ export function ProjectPicker({ open, currentProjectId, onPick, onCreate, onClos
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Shimmering placeholder row shown while the project list loads. Mirrors the
+ *  real row layout (name + "updated" line on the left, action chips on the
+ *  right) so the list doesn't jump when the data arrives. */
+function ProjectRowSkeleton() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '10px 14px',
+        borderRadius: 12,
+      }}
+    >
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7 }}>
+        <span className="mockit-skeleton" style={{ width: '52%', height: 13, borderRadius: 5 }} />
+        <span className="mockit-skeleton" style={{ width: '34%', height: 10, borderRadius: 4 }} />
+      </div>
+      <span className="mockit-skeleton" style={{ width: 64, height: 24, borderRadius: 999 }} />
+      <span className="mockit-skeleton" style={{ width: 28, height: 28, borderRadius: 8 }} />
+      <span className="mockit-skeleton" style={{ width: 28, height: 28, borderRadius: 8 }} />
     </div>
   )
 }

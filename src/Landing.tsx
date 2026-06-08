@@ -35,6 +35,48 @@ const Logo = () => (
 
 const navLinks = ['Features', 'Gallery', 'Templates', 'Pricing', 'Changelog']
 
+const MCP_SERVER_NAME = 'mcp-openmockup'
+const MCP_CONFIG = { command: 'npx', args: ['-y', MCP_SERVER_NAME] } as const
+const MCP_CONFIG_B64 =
+  typeof btoa === 'function' ? btoa(JSON.stringify(MCP_CONFIG)) : ''
+const CURSOR_MCP_INSTALL_URL = `cursor://anysphere.cursor-deeplink/mcp/install?name=${MCP_SERVER_NAME}&config=${MCP_CONFIG_B64}`
+const CLAUDE_MCP_CMD = `claude mcp add --scope user ${MCP_SERVER_NAME} -- npx -y ${MCP_SERVER_NAME}`
+const CLAUDE_MCP_PROMPT = `Run this command to install the OpenMockup MCP server:\n\n${CLAUDE_MCP_CMD}`
+const CLAUDE_MCP_INSTALL_URL = `claude-cli://open?q=${encodeURIComponent(CLAUDE_MCP_PROMPT)}`
+
+function CursorIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 2L3 7v10l9 5 9-5V7l-9-5z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M12 12l9-5M12 12v10M12 12L3 7" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  )
+}
+
+function ClaudeIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 3c-2.2 3.2-4.8 5.4-8 6.6 2.4 1 4.4 2.8 6 5.1 1.6-2.3 3.6-4.1 6-5.1C16.8 8.4 14.2 6.2 12 3z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6 18.5c2.2-1.2 4-3 5.6-5.4M18 18.5c-2.2-1.2-4-3-5.6-5.4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 const logos = ['Linear', 'Vercel', 'Arc', 'Raycast', 'Framer', 'Notion']
 
 const features = [
@@ -223,6 +265,7 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
   const [menuOpen, setMenuOpen] = useState(false)
   const [galleryLoading, setGalleryLoading] = useState(true)
   const [publicProjects, setPublicProjects] = useState<ProjectSummary[]>([])
+  const [mcpCopied, setMcpCopied] = useState<'cursor' | 'claude' | null>(null)
   const featuresHeaderRef = useReveal<HTMLDivElement>()
   const featuresGridRef = useReveal<HTMLDivElement>()
   const galleryHeaderRef = useReveal<HTMLDivElement>()
@@ -330,7 +373,7 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
             padding: '4px 12px', borderRadius: 999, fontSize: 13, fontWeight: 500,
             background: 'var(--surface-2)', border: '1px solid var(--border)',
             color: 'var(--fg-2)', marginBottom: 28,
-          }}><span className="landing-hero-badge-sparkle">✦</span> Now with motion mockups</div>
+          }}><span className="landing-hero-badge-sparkle">✦</span> MCP server on npm</div>
 
           <h1 style={{
             fontFamily: 'var(--font-display)', fontWeight: 700,
@@ -344,22 +387,58 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
           </h1>
 
           <p className="landing-hero-desc">
-            Drag your screens into beautifully lit iPhones and Macs.
-            No Blender. No render queue. Just gorgeous mockups in a tab.
+            Drag your screens into beautifully lit iPhones and Macs — in the browser
+            or straight from Cursor and Claude via MCP.
           </p>
 
-          <button onClick={() => onEnter()} className="landing-cta-primary" style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            padding: '14px 24px', borderRadius: 999, border: 'none',
-            background: 'var(--accent)', color: '#fff',
-            font: '600 16px/1 var(--font-sans)', letterSpacing: '-0.005em',
-            cursor: 'pointer',
-            boxShadow: '0 6px 20px -6px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,.25)',
-            transition: 'filter .15s ease, transform .15s ease',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.06)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-          onMouseLeave={e => { e.currentTarget.style.filter = ''; e.currentTarget.style.transform = '' }}
-          >Start a mockup <span className="landing-cta-arrow">→</span></button>
+          <div className="landing-hero-actions">
+            <button onClick={() => onEnter()} className="landing-cta-primary" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '14px 24px', borderRadius: 999, border: 'none',
+              background: 'var(--accent)', color: '#fff',
+              font: '600 16px/1 var(--font-sans)', letterSpacing: '-0.005em',
+              cursor: 'pointer',
+              boxShadow: '0 6px 20px -6px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,.25)',
+              transition: 'filter .15s ease, transform .15s ease',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.06)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+            onMouseLeave={e => { e.currentTarget.style.filter = ''; e.currentTarget.style.transform = '' }}
+            >Start a mockup <span className="landing-cta-arrow">→</span></button>
+
+            <div className="landing-hero-mcp">
+              <p className="landing-hero-mcp-label">Install MCP</p>
+              <div className="landing-hero-mcp-buttons">
+                <a
+                  href={CURSOR_MCP_INSTALL_URL}
+                  className="landing-mcp-btn"
+                  onClick={() => {
+                    setMcpCopied('cursor')
+                    window.setTimeout(() => setMcpCopied(null), 2200)
+                  }}
+                >
+                  <CursorIcon />
+                  <span>{mcpCopied === 'cursor' ? 'Opening Cursor…' : 'Add to Cursor'}</span>
+                </a>
+                <a
+                  href={CLAUDE_MCP_INSTALL_URL}
+                  className="landing-mcp-btn"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(CLAUDE_MCP_CMD).catch(() => {})
+                    setMcpCopied('claude')
+                    window.setTimeout(() => setMcpCopied(null), 2200)
+                  }}
+                >
+                  <ClaudeIcon />
+                  <span>{mcpCopied === 'claude' ? 'Opening Claude…' : 'Add to Claude'}</span>
+                </a>
+              </div>
+              <p className="landing-hero-mcp-hint">
+                Cursor installs in one click · Claude opens with the install command ready to run
+                {' · '}
+                <code className="landing-hero-mcp-cmd">npx -y {MCP_SERVER_NAME}</code>
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 

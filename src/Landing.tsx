@@ -197,90 +197,6 @@ function GalleryProjectCard({
   )
 }
 
-// Minimal CSS phone shape rendered with divs
-function PhoneShape({ scale = 1, tilt = 0 }: { scale?: number; tilt?: number }) {
-  const w = 160 * scale
-  const h = 320 * scale
-  return (
-    <div
-      style={{
-        width: w,
-        height: h,
-        borderRadius: w * 0.14,
-        background: 'rgba(20,10,40,.85)',
-        border: '6px solid rgba(255,255,255,.15)',
-        boxShadow: '0 40px 80px rgba(110,75,255,.35), 0 8px 24px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.15)',
-        position: 'relative',
-        transform: `rotate(${tilt}deg)`,
-        overflow: 'hidden',
-        flexShrink: 0,
-      }}
-    >
-      {/* Dynamic island */}
-      <div style={{
-        position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
-        width: w * 0.28, height: 10 * scale, borderRadius: 999,
-        background: '#000',
-      }} />
-      {/* Screen content placeholder */}
-      <div style={{ position: 'absolute', inset: '28px 8px 8px', borderRadius: w * 0.09, background: 'rgba(255,255,255,.06)', padding: 10 }}>
-        <div style={{ fontSize: 7 * scale, color: 'rgba(255,255,255,.45)', marginBottom: 4 }}>Tuesday, May 17</div>
-        <div style={{ fontSize: 11 * scale, fontWeight: 700, color: '#fff', marginBottom: 10 }}>Good morning</div>
-        <div style={{ height: 1, background: 'rgba(255,255,255,.08)', marginBottom: 8 }} />
-        <div style={{ fontSize: 7 * scale, color: 'rgba(255,255,255,.4)', marginBottom: 3 }}>FOCUS</div>
-        <div style={{ fontSize: 9 * scale, fontWeight: 600, color: '#fff', marginBottom: 6 }}>Ship landing redesign</div>
-        <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
-          {[1,2,3,4].map(i => <div key={i} style={{ flex: 1, height: 18 * scale, borderRadius: 4, background: 'var(--accent)' }} />)}
-        </div>
-        {['Review motion specs', 'Sync with design team', 'Polish hero animation'].map((t, i) => (
-          <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-            <div style={{ width: 8 * scale, height: 8 * scale, borderRadius: '50%', border: i === 0 ? 'none' : '1.5px solid rgba(255,255,255,.3)', background: i === 0 ? 'var(--accent)' : 'transparent', flexShrink: 0 }} />
-            <div style={{ flex: 1, fontSize: 7 * scale, color: i === 0 ? 'rgba(255,255,255,.4)' : 'rgba(255,255,255,.7)', textDecoration: i === 0 ? 'line-through' : 'none' }}>{t}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function MacShape() {
-  const w = 260
-  const h = 170
-  return (
-    <div style={{ position: 'relative' }}>
-      <div style={{
-        width: w, height: h,
-        borderRadius: '10px 10px 4px 4px',
-        background: 'rgba(20,10,40,.8)',
-        border: '4px solid rgba(255,255,255,.12)',
-        boxShadow: '0 20px 60px rgba(110,75,255,.2)',
-        overflow: 'hidden',
-        position: 'relative',
-      }}>
-        {/* traffic lights */}
-        <div style={{ display: 'flex', gap: 4, padding: '8px 10px 0' }}>
-          {['#ff5f57','#febc2e','#28c840'].map(c => <div key={c} style={{ width: 7, height: 7, borderRadius: '50%', background: c }} />)}
-        </div>
-        <div style={{ padding: '6px 10px 8px', fontSize: 9, color: 'rgba(255,255,255,.5)' }}>Pages · Components · Devices · Assets · Exports</div>
-        <div style={{ margin: '0 8px', height: 1, background: 'rgba(255,255,255,.06)' }} />
-        <div style={{ display: 'flex', height: h - 60 }}>
-          <div style={{ width: 60, borderRight: '1px solid rgba(255,255,255,.06)', padding: '8px 6px', fontSize: 8, color: 'rgba(255,255,255,.3)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {['Pages','Components','Devices','Assets','Exports'].map((t, i) => (
-              <div key={t} style={{ color: i === 2 ? 'var(--accent)' : 'inherit', fontWeight: i === 2 ? 600 : 400, fontSize: 8 }}>{t}</div>
-            ))}
-          </div>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ fontSize: 8, color: 'rgba(255,255,255,.2)' }}>PROJECT</div>
-          </div>
-        </div>
-      </div>
-      {/* base */}
-      <div style={{ width: w + 20, height: 8, background: 'rgba(20,10,40,.6)', borderRadius: '0 0 8px 8px', margin: '0 auto', transform: 'translateX(-10px)' }} />
-      <div style={{ width: w * 0.5, height: 3, background: 'rgba(20,10,40,.4)', borderRadius: 4, margin: '0 auto' }} />
-    </div>
-  )
-}
-
 function useReveal<T extends HTMLElement>() {
   const ref = useRef<T | null>(null)
   useEffect(() => {
@@ -418,7 +334,7 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
 
           <h1 style={{
             fontFamily: 'var(--font-display)', fontWeight: 700,
-            fontSize: 'clamp(52px, 5.5vw, 90px)',
+            fontSize: 'clamp(54px, 7vw, 104px)',
             lineHeight: 0.96, letterSpacing: 'var(--letter-display)',
             margin: '0 0 24px', color: 'var(--fg)',
           }}>
@@ -444,33 +360,6 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
           onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.06)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
           onMouseLeave={e => { e.currentTarget.style.filter = ''; e.currentTarget.style.transform = '' }}
           >Start a mockup <span className="landing-cta-arrow">→</span></button>
-        </div>
-
-        <div className="landing-hero-devices landing-hero-devices-stage">
-          {/* Glow blobs behind devices */}
-          <div className="landing-blob" style={{
-            position: 'absolute', width: 340, height: 340, borderRadius: '50%',
-            filter: 'blur(70px)',
-            background: 'radial-gradient(circle, #ff7eb6 0%, transparent 70%)',
-            top: '5%', right: '10%', pointerEvents: 'none',
-            ['--blob-opacity' as string]: 0.5,
-          }} />
-          <div className="landing-blob landing-blob-b" style={{
-            position: 'absolute', width: 280, height: 280, borderRadius: '50%',
-            filter: 'blur(60px)',
-            background: 'radial-gradient(circle, #6e4bff 0%, transparent 70%)',
-            bottom: '5%', left: '5%', pointerEvents: 'none',
-            ['--blob-opacity' as string]: 0.4,
-          }} />
-
-          {/* MacBook behind */}
-          <div className="landing-device-float-b" style={{ position: 'absolute', left: '2%', bottom: '8%', zIndex: 1, opacity: 0.9 }}>
-            <MacShape />
-          </div>
-          {/* iPhone front */}
-          <div className="landing-device-float-a" style={{ position: 'relative', zIndex: 2, ['--rot' as string]: '-5deg', transform: 'rotate(-5deg)' }}>
-            <PhoneShape scale={1.15} />
-          </div>
         </div>
       </section>
 

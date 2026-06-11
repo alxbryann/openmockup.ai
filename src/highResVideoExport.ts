@@ -50,7 +50,7 @@ function targetBitrateFor(width: number, height: number, fps: number): number {
  * yet be sampleable. `requestVideoFrameCallback` fires only when a real new
  * frame has been produced — that's what we need before reading the texture.
  */
-function seekVideoTo(video: HTMLVideoElement, time: number): Promise<void> {
+export function seekVideoTo(video: HTMLVideoElement, time: number): Promise<void> {
   return new Promise((resolve) => {
     const v = video as VFCVideo
     const hasVFC = typeof v.requestVideoFrameCallback === 'function'
@@ -256,6 +256,8 @@ export async function exportVideoFrameByFrame(opts: {
   fps?: number
   startTime: number
   endTime: number
+  /** Explicit output size override (used by aspect-ratio presets). Wins over `preset`. */
+  outputSize?: { w: number; h: number }
   onProgress: (p: ExportProgress) => void
   signal?: AbortSignal
 }): Promise<void> {
@@ -269,6 +271,7 @@ export async function exportVideoFrameByFrame(opts: {
     fps = 30,
     startTime,
     endTime,
+    outputSize,
     onProgress,
     signal,
   } = opts
@@ -287,7 +290,10 @@ export async function exportVideoFrameByFrame(opts: {
   if (totalFrames === 0) throw new Error('Sin frames para exportar')
 
   let outW: number, outH: number
-  if (preset === 'screen') {
+  if (outputSize) {
+    outW = outputSize.w
+    outH = outputSize.h
+  } else if (preset === 'screen') {
     outW = canvasElement.width
     outH = canvasElement.height
   } else {

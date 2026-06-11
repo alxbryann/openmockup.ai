@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useStore } from './store'
 import { GRADIENT_PRESETS } from './gradients'
+import { ASPECT_PRESETS } from './aspectPresets'
+import { SCENE_TEMPLATES, buildTemplateSnapshot, getSceneTemplate } from './sceneTemplates'
 
 const API_KEY_STORAGE = 'openmockup.deepseekKey.v1'
 const ENV_API_KEY = import.meta.env.VITE_DEEPSEEK_KEY as string | undefined
@@ -211,6 +213,60 @@ const STUDIO_TOOLS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'apply_template',
+      description:
+        'Apply a curated scene template (layout, background, camera, aspect ratio and lighting). Preserves any screenshots already uploaded.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          template_id: {
+            type: 'string',
+            enum: SCENE_TEMPLATES.map((t) => t.id),
+            description: SCENE_TEMPLATES.map((t) => `${t.id}: ${t.description}`).join(' | '),
+          },
+        },
+        required: ['template_id'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'set_aspect_preset',
+      description:
+        'Set the export aspect ratio / social format. Shows a crop frame in the viewport and locks export dimensions.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          preset: {
+            type: 'string',
+            enum: ASPECT_PRESETS.map((p) => p.id),
+            description: ASPECT_PRESETS.map((p) => `${p.id}: ${p.hint}`).join(' | '),
+          },
+        },
+        required: ['preset'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'set_lighting',
+      description:
+        'Adjust scene lighting. Each value is optional; omit to leave unchanged. Higher = brighter.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          environment: { type: 'number', minimum: 0, maximum: 1.5, description: 'HDRI environment intensity' },
+          ambient: { type: 'number', minimum: 0, maximum: 0.6, description: 'Ambient fill light' },
+          key: { type: 'number', minimum: 0, maximum: 2, description: 'Main key light' },
+        },
+      },
+    },
+  },
 ]
 
 // ── SSE streaming ─────────────────────────────────────────────────────────────
@@ -338,6 +394,34 @@ function executeTool(name: string, input: Record<string, unknown>): string {
         store.setAutoRotate(Boolean(input.enabled))
         return `Auto-rotate ${input.enabled ? 'on' : 'off'}`
       }
+      case 'apply_template': {
+        const tpl = getSceneTemplate(String(input.template_id))
+        if (!tpl) return `Error: unknown template "${input.template_id}"`
+        store.applySceneSnapshot(buildTemplateSnapshot(tpl, store.devices))
+        return `Applied template "${tpl.name}"`
+      }
+      case 'set_aspect_preset': {
+        const preset = ASPECT_PRESETS.find((p) => p.id === input.preset)
+        if (!preset) return `Error: unknown aspect preset "${input.preset}"`
+        store.setAspectPreset(preset.id)
+        return `Aspect ratio → ${preset.label}`
+      }
+      case 'set_lighting': {
+        const applied: string[] = []
+        if (typeof input.environment === 'number') {
+          store.setEnvironmentIntensity(input.environment)
+          applied.push(`env ${input.environment}`)
+        }
+        if (typeof input.ambient === 'number') {
+          store.setAmbientIntensity(input.ambient)
+          applied.push(`ambient ${input.ambient}`)
+        }
+        if (typeof input.key === 'number') {
+          store.setKeyLightIntensity(input.key)
+          applied.push(`key ${input.key}`)
+        }
+        return applied.length > 0 ? `Lighting → ${applied.join(', ')}` : 'No lighting values provided'
+      }
       default:
         return `Unknown tool: ${name}`
     }
@@ -379,7 +463,16 @@ BACKGROUND PRESETS (use exact CSS string as the value):
 ${gradientList}
 Or any hex color: #0a0a0a, #ffffff, #0f172a, etc.
 
+SCENE TEMPLATES (apply_template — fastest way to a polished scene, keeps user screenshots):
+${SCENE_TEMPLATES.map((t) => `  ${t.id}: ${t.description}`).join('\n')}
+
+ASPECT RATIOS (set_aspect_preset — for social formats):
+${ASPECT_PRESETS.map((p) => `  ${p.id}: ${p.hint}`).join('\n')}
+
+LIGHTING (set_lighting): environment (HDRI 0–1.5), ambient (0–0.6), key (0–2). Lower for moody/dark, higher for bright/clean.
+
 COMPOSITION TIPS:
+- For a quick, polished result prefer apply_template, then fine-tune with the other tools.
 - Multiple devices: stagger X (e.g. -10, 0, 10) and Z (e.g. 0, -8, -16) for depth layering.
 - Use set_device_position_y to move a device up (positive Y) or down (negative Y).
 - Use set_device_position_z for moving devices back (negative Z) or forward (positive Z).

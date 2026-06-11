@@ -6,6 +6,8 @@ import {
   type VideoExportBgMode,
   type VideoExportPreset,
 } from './highResVideoExport'
+import { resolveExportDimensions } from './aspectPresets'
+import { exportVideoToGif } from './gifExport'
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -55,6 +57,7 @@ export function VideoTimelineIsland({ deviceId }: VideoTimelineIslandProps) {
   const updateDevice = useStore((s) => s.updateDevice)
   const captureFrame = useStore((s) => s.captureSceneToCanvas)
   const bgColor = useStore((s) => s.bgColor)
+  const aspectPreset = useStore((s) => s.aspectPreset)
   const runtime = useVideoScreenBridge((s) => s.runtimeByDevice[deviceId])
   const seek = useVideoScreenBridge((s) => s.seek)
   const setPlaying = useVideoScreenBridge((s) => s.setPlaying)
@@ -69,6 +72,7 @@ export function VideoTimelineIsland({ deviceId }: VideoTimelineIslandProps) {
   const [preset, setPreset] = useState<VideoExportPreset>(1920)
   const [fps, setFps] = useState<30 | 60>(60)
   const [bgMode, setBgMode] = useState<VideoExportBgMode>('solid')
+  const [format, setFormat] = useState<'video' | 'gif'>('video')
   // Collapsed = minimized pill that only shows play + time, freeing the viewport.
   // Persist across navigations within this tab so the user's choice sticks while
   // they're working on the same scene.
@@ -101,17 +105,31 @@ export function VideoTimelineIsland({ deviceId }: VideoTimelineIslandProps) {
   const outputDims = useMemo(() => {
     const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
     if (!canvas) return null
-    if (preset === 'screen') return { w: canvas.width, h: canvas.height }
-    const aspect = canvas.clientWidth / canvas.clientHeight
-    if (aspect >= 1) {
-      const w = preset
-      const h = Math.max(2, Math.round(preset / aspect))
-      return { w: w % 2 === 0 ? w : w - 1, h: h % 2 === 0 ? h : h - 1 }
+    let w: number, h: number
+    if (aspectPreset !== 'free') {
+      const dims = resolveExportDimensions(
+        aspectPreset,
+        preset === 'screen' ? 'screen' : preset,
+        canvas.clientWidth,
+        canvas.clientHeight,
+      )
+      w = dims.w
+      h = dims.h
+    } else if (preset === 'screen') {
+      w = canvas.width
+      h = canvas.height
+    } else {
+      const aspect = canvas.clientWidth / canvas.clientHeight
+      if (aspect >= 1) {
+        w = preset
+        h = Math.max(2, Math.round(preset / aspect))
+      } else {
+        h = preset
+        w = Math.max(2, Math.round(preset * aspect))
+      }
     }
-    const h = preset
-    const w = Math.max(2, Math.round(preset * aspect))
     return { w: w % 2 === 0 ? w : w - 1, h: h % 2 === 0 ? h : h - 1 }
-  }, [preset])
+  }, [preset, aspectPreset])
 
   const duration = runtime?.duration ?? 0
   const currentTime = runtime?.currentTime ?? 0
@@ -189,6 +207,7 @@ export function VideoTimelineIsland({ deviceId }: VideoTimelineIslandProps) {
         fps,
         startTime: videoStartTime,
         endTime: videoEndTime!,
+        outputSize: outputDims ?? undefined,
         signal: controller.signal,
         onProgress: ({ frame, totalFrames, ratio }) => {
           setExportFrame(frame)
@@ -206,7 +225,64 @@ export function VideoTimelineIsland({ deviceId }: VideoTimelineIslandProps) {
       setExporting(false)
       abortRef.current = null
     }
-  }, [hasRange, captureFrame, deviceId, bgColor, bgMode, preset, fps, videoStartTime, videoEndTime])
+  }, [hasRange, captureFrame, deviceId, bgColor, bgMode, preset, fps, videoStartTime, videoEndTime, outputDims])
+
+  const exportGifClip = useCallback(async () => {
+    if (!hasRange || !captureFrame) return
+    const video = getDeviceScreenVideo(deviceId)
+    if (!video) {
+      setExportError('Video no disponible')
+      return
+    }
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+    if (!canvas) {
+      setExportError('Canvas 3D no encontrado')
+      return
+    }
+
+    setExportError(null)
+    setExportProgress(0)
+    setExportFrame(0)
+    setExportTotal(0)
+    setExporting(true)
+
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    // GIFs are heavy: cap the framerate so files stay reasonable.
+    const gifFps = Math.min(fps, 24)
+    const longEdge = preset === 'screen' ? canvas.clientWidth : preset
+
+    try {
+      await exportVideoToGif({
+        videoElement: video,
+        captureFrame,
+        bgCss: bgColor,
+        longEdge,
+        outputSize: outputDims ?? undefined,
+        viewW: canvas.clientWidth,
+        viewH: canvas.clientHeight,
+        fps: gifFps,
+        startTime: videoStartTime,
+        endTime: videoEndTime!,
+        signal: controller.signal,
+        onProgress: ({ frame, totalFrames, ratio }) => {
+          setExportFrame(frame)
+          setExportTotal(totalFrames)
+          setExportProgress(ratio)
+        },
+      })
+    } catch (err) {
+      if (controller.signal.aborted) {
+        setExportError(null)
+      } else {
+        setExportError(err instanceof Error ? err.message : 'Error al exportar GIF')
+      }
+    } finally {
+      setExporting(false)
+      abortRef.current = null
+    }
+  }, [hasRange, captureFrame, deviceId, bgColor, preset, fps, videoStartTime, videoEndTime, outputDims])
 
   if (effectiveCollapsed) {
     // Minimized pill: just play + time + thin progress + expand button.
@@ -531,6 +607,35 @@ export function VideoTimelineIsland({ deviceId }: VideoTimelineIslandProps) {
               </button>
             </div>
 
+            {/* Output format (video / gif) */}
+            <div className="mb-1.5 flex gap-1.5">
+              {(['video', 'gif'] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => { setFormat(f); setExportError(null) }}
+                  disabled={exporting}
+                  className="flex-1 cursor-pointer rounded-full py-1.5 transition disabled:cursor-not-allowed"
+                  style={{
+                    font: '600 10px/1 var(--font-sans)',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    border: format === f
+                      ? '1px solid rgba(110,75,255,.7)'
+                      : '1px solid rgba(255,255,255,.12)',
+                    background: format === f
+                      ? 'rgba(110,75,255,.25)'
+                      : 'rgba(255,255,255,.05)',
+                    color: format === f
+                      ? 'rgba(200,180,255,.95)'
+                      : 'rgba(255,255,255,.4)',
+                  }}
+                >
+                  {f === 'video' ? 'Video' : 'GIF'}
+                </button>
+              ))}
+            </div>
+
             {/* Resolution + FPS selectors */}
             <div className="mb-1.5 flex gap-1.5">
               {PRESETS.map((p) => (
@@ -593,49 +698,60 @@ export function VideoTimelineIsland({ deviceId }: VideoTimelineIslandProps) {
               )}
             </div>
 
-            {/* Background mode (solid / green / transparent) */}
-            <p
-              className="mb-1"
-              style={{
-                font: '600 9px/1 var(--font-sans)',
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: 'rgba(255,255,255,.35)',
-              }}
-            >
-              Fondo
-            </p>
-            <div className="mb-1 flex gap-1.5">
-              {BG_MODES.map((m) => (
-                <button
-                  key={m.value}
-                  type="button"
-                  onClick={() => { setBgMode(m.value); setExportError(null) }}
-                  disabled={exporting}
-                  className="flex-1 cursor-pointer rounded-full py-1.5 transition disabled:cursor-not-allowed"
+            {/* Background mode (solid / green / transparent) — video only */}
+            {format === 'video' ? (
+              <>
+                <p
+                  className="mb-1"
                   style={{
-                    font: '500 10px/1 var(--font-sans)',
-                    border: bgMode === m.value
-                      ? '1px solid rgba(110,75,255,.7)'
-                      : '1px solid rgba(255,255,255,.12)',
-                    background: bgMode === m.value
-                      ? 'rgba(110,75,255,.25)'
-                      : 'rgba(255,255,255,.05)',
-                    color: bgMode === m.value
-                      ? 'rgba(200,180,255,.95)'
-                      : 'rgba(255,255,255,.4)',
+                    font: '600 9px/1 var(--font-sans)',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'rgba(255,255,255,.35)',
                   }}
                 >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            <p
-              className="mb-2.5"
-              style={{ font: '400 10px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.42)' }}
-            >
-              {activeBgMode.hint}
-            </p>
+                  Fondo
+                </p>
+                <div className="mb-1 flex gap-1.5">
+                  {BG_MODES.map((m) => (
+                    <button
+                      key={m.value}
+                      type="button"
+                      onClick={() => { setBgMode(m.value); setExportError(null) }}
+                      disabled={exporting}
+                      className="flex-1 cursor-pointer rounded-full py-1.5 transition disabled:cursor-not-allowed"
+                      style={{
+                        font: '500 10px/1 var(--font-sans)',
+                        border: bgMode === m.value
+                          ? '1px solid rgba(110,75,255,.7)'
+                          : '1px solid rgba(255,255,255,.12)',
+                        background: bgMode === m.value
+                          ? 'rgba(110,75,255,.25)'
+                          : 'rgba(255,255,255,.05)',
+                        color: bgMode === m.value
+                          ? 'rgba(200,180,255,.95)'
+                          : 'rgba(255,255,255,.4)',
+                      }}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <p
+                  className="mb-2.5"
+                  style={{ font: '400 10px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.42)' }}
+                >
+                  {activeBgMode.hint}
+                </p>
+              </>
+            ) : (
+              <p
+                className="mb-2.5"
+                style={{ font: '400 10px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.42)' }}
+              >
+                GIF en loop con el fondo actual de la escena · máx 1080p · 24 fps.
+              </p>
+            )}
 
             {/* Progress bar */}
             {exporting && (
@@ -685,7 +801,7 @@ export function VideoTimelineIsland({ deviceId }: VideoTimelineIslandProps) {
             ) : (
               <button
                 type="button"
-                onClick={exportVideoClip}
+                onClick={format === 'gif' ? exportGifClip : exportVideoClip}
                 disabled={!ready || !captureFrame}
                 className="w-full cursor-pointer py-2.5 transition enabled:hover:brightness-110 disabled:opacity-50"
                 style={{
@@ -697,7 +813,7 @@ export function VideoTimelineIsland({ deviceId }: VideoTimelineIslandProps) {
                   border: '1px solid rgba(130,80,255,.4)',
                 }}
               >
-                ↓ Exportar video ({activeBgMode.format})
+                {format === 'gif' ? '↓ Exportar GIF' : `↓ Exportar video (${activeBgMode.format})`}
               </button>
             )}
 
@@ -715,7 +831,9 @@ export function VideoTimelineIsland({ deviceId }: VideoTimelineIslandProps) {
                 className="mt-1.5 text-center"
                 style={{ font: '400 10px/1 var(--font-sans)', color: 'rgba(255,255,255,.25)' }}
               >
-                Frame a frame · {bgMode === 'transparent' ? 'VP9 alpha' : 'H.264'} · {fps} fps · alta calidad
+                {format === 'gif'
+                  ? `Frame a frame · GIF en loop · ${Math.min(fps, 24)} fps`
+                  : `Frame a frame · ${bgMode === 'transparent' ? 'VP9 alpha' : 'H.264'} · ${fps} fps · alta calidad`}
               </p>
             )}
           </div>

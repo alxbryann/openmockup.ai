@@ -16,6 +16,7 @@
     "@supabase/supabase-js": "^2.106.2",
     "@tailwindcss/vite": "^4.2.4",
     "@vercel/analytics": "^2.0.1",
+    "gifenc": "^1.0.3",
     "heic2any": "^0.0.4",
     "mp4-muxer": "^5.2.2",
     "react": "^19.2.5",

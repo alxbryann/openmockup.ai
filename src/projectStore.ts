@@ -1,4 +1,5 @@
-import type { DeviceInstance } from './store'
+import type { AspectPreset, DeviceInstance } from './store'
+import { LIGHTING_DEFAULTS } from './store'
 import { isSupabaseConfigured } from './supabase'
 import { SupabaseProjectStore } from './supabaseProjectStore'
 
@@ -13,6 +14,10 @@ export type ProjectSnapshot = {
   cameraTarget: [number, number, number]
   viewportAspect: number
   viewportInsetRight: number
+  aspectPreset?: AspectPreset
+  environmentIntensity?: number
+  ambientIntensity?: number
+  keyLightIntensity?: number
 }
 
 export type Project = {
@@ -94,6 +99,10 @@ function defaultSnapshot(): ProjectSnapshot {
     cameraTarget: [0, 0, 0],
     viewportAspect: 1,
     viewportInsetRight: 0,
+    aspectPreset: 'free',
+    environmentIntensity: LIGHTING_DEFAULTS.environmentIntensity,
+    ambientIntensity: LIGHTING_DEFAULTS.ambientIntensity,
+    keyLightIntensity: LIGHTING_DEFAULTS.keyLightIntensity,
   }
 }
 
@@ -201,6 +210,10 @@ export function snapshotFromStoreState(s: {
   cameraTarget: [number, number, number]
   viewportAspect: number
   viewportInsetRight: number
+  aspectPreset: AspectPreset
+  environmentIntensity: number
+  ambientIntensity: number
+  keyLightIntensity: number
 }): ProjectSnapshot {
   return {
     devices: s.devices.map((d) => ({ ...d, deviceRotation: [...d.deviceRotation] as [number, number, number] })),
@@ -213,6 +226,10 @@ export function snapshotFromStoreState(s: {
     cameraTarget: [...s.cameraTarget] as [number, number, number],
     viewportAspect: s.viewportAspect,
     viewportInsetRight: s.viewportInsetRight,
+    aspectPreset: s.aspectPreset,
+    environmentIntensity: s.environmentIntensity,
+    ambientIntensity: s.ambientIntensity,
+    keyLightIntensity: s.keyLightIntensity,
   }
 }
 

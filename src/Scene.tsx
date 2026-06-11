@@ -684,6 +684,9 @@ function SceneWorld({ onReady }: { onReady?: () => void }) {
   const devices = useStore((s) => s.devices)
   const activeDeviceId = useStore((s) => s.activeDeviceId)
   const activeDevice = devices.find((d) => d.id === activeDeviceId) ?? devices[0]
+  const environmentIntensity = useStore((s) => s.environmentIntensity)
+  const ambientIntensity = useStore((s) => s.ambientIntensity)
+  const keyLightIntensity = useStore((s) => s.keyLightIntensity)
   const orbitControlsRef = useRef<OrbitControlsImpl>(null)
 
   return (
@@ -691,11 +694,11 @@ function SceneWorld({ onReady }: { onReady?: () => void }) {
       <SceneLoadingMonitor onReady={onReady} />
       <SceneBackgroundSync />
       <SceneCaptureRegistration />
-      <ambientLight intensity={0.2} />
+      <ambientLight intensity={ambientIntensity} />
       <hemisphereLight args={['#f2f4ff', '#1a1c22', 0.35]} position={[0, 1, 0]} />
       <directionalLight
         position={[9, 11, 7]}
-        intensity={1.05}
+        intensity={keyLightIntensity}
         castShadow
         color="#fffaf4"
         shadow-mapSize-width={2048}
@@ -711,7 +714,7 @@ function SceneWorld({ onReady }: { onReady?: () => void }) {
       <DeviceScene orbitControlsRef={orbitControlsRef} />
 
       <SceneContactShadows deviceKind={activeDevice?.deviceKind ?? 'phone'} />
-      <Environment preset="studio" environmentIntensity={0.74} />
+      <Environment preset="studio" environmentIntensity={environmentIntensity} />
       <OrbitWithRoll controlsRef={orbitControlsRef} />
       <CameraLookDrag controlsRef={orbitControlsRef} />
       <CameraWasdMovement controlsRef={orbitControlsRef} />

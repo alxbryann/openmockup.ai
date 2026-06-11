@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { exportPixelSize } from './highResCapture'
 import { CHROMA_KEY_GREEN } from './highResVideoExport'
+import { ASPECT_PRESETS, aspectRatioOf, resolveExportDimensions } from './aspectPresets'
+import {
+  BUILTIN_CAMERA_PRESETS,
+  deleteUserCameraPreset,
+  listUserCameraPresets,
+  saveUserCameraPreset,
+  type CameraPreset,
+} from './cameraPresets'
+import {
+  SCENE_TEMPLATES,
+  buildTemplateSnapshot,
+  getSceneTemplate,
+  type SceneTemplate,
+} from './sceneTemplates'
 import { useAuth, SUPABASE_ENABLED } from './useAuth'
 import { supabase } from './supabase'
 import {
@@ -28,7 +42,7 @@ type AppProps = { initialProjectId?: string | null }
  */
 type PngBgMode = 'solid' | 'green' | 'transparent'
 
-type StudioSectionId = 'devices' | 'content' | 'design' | 'layout' | 'scene' | 'camera'
+type StudioSectionId = 'templates' | 'devices' | 'content' | 'design' | 'layout' | 'scene' | 'camera'
 
 const DEVICE_OPTIONS: { id: DeviceKind; label: string }[] = [
   { id: 'phone', label: 'Phone' },
@@ -113,6 +127,47 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const setViewportAspect = useStore((s) => s.setViewportAspect)
   const setViewportInsetRight = useStore((s) => s.setViewportInsetRight)
 
+  const aspectPreset = useStore((s) => s.aspectPreset)
+  const setAspectPreset = useStore((s) => s.setAspectPreset)
+  const aspectRatioValue = aspectRatioOf(aspectPreset)
+  const environmentIntensity = useStore((s) => s.environmentIntensity)
+  const ambientIntensity = useStore((s) => s.ambientIntensity)
+  const keyLightIntensity = useStore((s) => s.keyLightIntensity)
+  const setEnvironmentIntensity = useStore((s) => s.setEnvironmentIntensity)
+  const setAmbientIntensity = useStore((s) => s.setAmbientIntensity)
+  const setKeyLightIntensity = useStore((s) => s.setKeyLightIntensity)
+  const resetLighting = useStore((s) => s.resetLighting)
+  const applyCameraPreset = useStore((s) => s.applyCameraPreset)
+  const applySceneSnapshot = useStore((s) => s.applySceneSnapshot)
+
+  const [userCameraPresets, setUserCameraPresets] = useState<CameraPreset[]>(() => listUserCameraPresets())
+
+  const handleSaveCameraPreset = useCallback(() => {
+    const s = useStore.getState()
+    const name = window.prompt('Nombre de la vista de cámara')
+    if (name === null) return
+    setUserCameraPresets(
+      saveUserCameraPreset(name, {
+        cameraPosition: s.cameraPosition,
+        cameraTarget: s.cameraTarget,
+        orbitDistance: s.orbitDistance,
+        cameraRoll: s.cameraRoll,
+      }),
+    )
+  }, [])
+
+  const handleDeleteCameraPreset = useCallback((id: string) => {
+    setUserCameraPresets(deleteUserCameraPreset(id))
+  }, [])
+
+  const applyTemplate = useCallback(
+    (template: SceneTemplate) => {
+      const patch = buildTemplateSnapshot(template, useStore.getState().devices)
+      applySceneSnapshot(patch)
+    },
+    [applySceneSnapshot],
+  )
+
   const { user } = useAuth()
 
   async function handleSignOut() {
@@ -126,6 +181,9 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     const el = sceneHostRef.current
     if (!el) return
     const ro = new ResizeObserver(() => {
+      // A fixed aspect preset owns viewportAspect (see the sync effect below);
+      // don't let live host resizes overwrite the locked crop ratio.
+      if (useStore.getState().aspectPreset !== 'free') return
       const r = el.getBoundingClientRect()
       if (r.width > 0 && r.height > 0) {
         const aspect = Math.round((r.width / r.height) * 1000) / 1000
@@ -137,6 +195,23 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     ro.observe(el)
     return () => ro.disconnect()
   }, [setViewportAspect])
+
+  // When a fixed aspect preset is active, lock viewportAspect to the crop ratio so
+  // gallery cards/embeds reproduce the same framing the author exported.
+  useEffect(() => {
+    if (aspectRatioValue === null) {
+      const el = sceneHostRef.current
+      if (el) {
+        const r = el.getBoundingClientRect()
+        if (r.width > 0 && r.height > 0) {
+          setViewportAspect(Math.round((r.width / r.height) * 1000) / 1000)
+        }
+      }
+      return
+    }
+    const locked = Math.round(aspectRatioValue * 1000) / 1000
+    if (locked !== useStore.getState().viewportAspect) setViewportAspect(locked)
+  }, [aspectRatioValue, setViewportAspect])
 
   // Track how much of the canvas width is covered by the side panel overlay.
   // The embed uses this to reproduce the same effective framing.
@@ -231,14 +306,27 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
       if (cancelled) return
       activeProjectIdRef.current = project.id
       hydrateFromSnapshot(project.snapshot)
+      // Apply a template requested via ?template=<id> (e.g. from the landing
+      // Templates page), preserving any media on the freshly-hydrated devices.
+      const requestedTemplate = new URLSearchParams(location.search).get('template')
+      if (requestedTemplate) {
+        const tpl = getSceneTemplate(requestedTemplate)
+        if (tpl) {
+          const patch = buildTemplateSnapshot(tpl, useStore.getState().devices)
+          useStore.getState().applySceneSnapshot(patch)
+        }
+      }
       setActiveProject(project)
       projectStore.setLastOpenedId(project.id)
       // Reflect project id in URL without reloading
       const q = new URLSearchParams(location.search)
+      q.delete('template')
       if (q.get('project') !== project.id) {
         q.set('studio', '')
         q.set('project', project.id)
         history.replaceState(null, '', `?${q.toString().replace('studio=&', 'studio&')}`)
+      } else {
+        history.replaceState(null, '', `?${q.toString()}`)
       }
       // Give hydrate time to settle before autosave starts.
       requestAnimationFrame(() => {
@@ -284,6 +372,10 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         cameraTarget: s.cameraTarget,
         viewportAspect: s.viewportAspect,
         viewportInsetRight: s.viewportInsetRight,
+        aspectPreset: s.aspectPreset,
+        environmentIntensity: s.environmentIntensity,
+        ambientIntensity: s.ambientIntensity,
+        keyLightIntensity: s.keyLightIntensity,
       })
       const thumbnail = await captureProjectThumbnail(s.bgColor, s.viewportInsetRight)
       // Capturing the thumbnail is async; re-check before persisting in case the
@@ -307,7 +399,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     if (autosaveMaxWaitRef.current == null) {
       autosaveMaxWaitRef.current = window.setTimeout(commitSave, 2500)
     }
-  }, [activeProject, devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight])
+  }, [activeProject, devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight, aspectPreset, environmentIntensity, ambientIntensity, keyLightIntensity])
 
   // Cancel any pending autosave for the previous project when the active
   // project changes (or when the studio unmounts). Without this, the 2.5 s
@@ -402,6 +494,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const [exportError, setExportError] = useState<string | null>(null)
   const [studioReady, setStudioReady] = useState(false)
   const [openSections, setOpenSections] = useState<Record<StudioSectionId, boolean>>({
+    templates: false,
     devices: true,
     content: true,
     design: true,
@@ -546,16 +639,24 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         const capture = useStore.getState().captureSceneAtSize
         let dataUrl: string
         // Anything other than a solid current-bg @ screen size needs the offscreen path.
-        const needOffscreen = pngBgMode !== 'solid' || exportPreset !== 'screen'
+        // A fixed aspect preset always needs offscreen so we can crop to the exact ratio.
+        const needOffscreen = pngBgMode !== 'solid' || exportPreset !== 'screen' || aspectPreset !== 'free'
         if (needOffscreen) {
           if (!capture) {
             setExportError('La escena aún no está lista. Espera un momento y vuelve a intentarlo.')
             return
           }
           const { w, h } =
-            exportPreset === 'screen'
-              ? { w: canvas.width, h: canvas.height }
-              : exportPixelSize(exportPreset, canvas.clientWidth, canvas.clientHeight)
+            aspectPreset !== 'free'
+              ? resolveExportDimensions(
+                  aspectPreset,
+                  exportPreset === 'screen' ? 'screen' : exportPreset,
+                  canvas.clientWidth,
+                  canvas.clientHeight,
+                )
+              : exportPreset === 'screen'
+                ? { w: canvas.width, h: canvas.height }
+                : exportPixelSize(exportPreset, canvas.clientWidth, canvas.clientHeight)
           const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl')
           if (gl) {
             const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number
@@ -799,6 +900,24 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
       >
         <Scene onReady={handleSceneReady} />
 
+        {/* Aspect-ratio crop frame — shows the exact export region when a social preset is active */}
+        {aspectRatioValue !== null && (
+          <div className="pointer-events-none absolute inset-0 z-[4] flex items-center justify-center">
+            <div
+              style={{
+                aspectRatio: String(aspectRatioValue),
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: aspectRatioValue >= 1 ? '100%' : 'auto',
+                height: aspectRatioValue >= 1 ? 'auto' : '100%',
+                boxShadow: '0 0 0 9999px rgba(8,6,18,.55)',
+                border: '1px solid rgba(255,255,255,.45)',
+                borderRadius: 2,
+              }}
+            />
+          </div>
+        )}
+
         {/* Drag-and-drop overlay */}
         {isDraggingOver && (
           <div
@@ -913,6 +1032,48 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
           </div>
 
           <div className="flex flex-col gap-1.5">
+
+            {/* 0 · TEMPLATES — curated scene starting points */}
+            <Section
+              id="templates"
+              title="Templates"
+              icon={<TemplateGlyph className="h-3.5 w-3.5 shrink-0" />}
+              hint={`${SCENE_TEMPLATES.length} escenas`}
+              open={openSections.templates}
+              onToggle={() => toggleSection('templates')}
+            >
+              <p
+                className="mb-2 leading-snug"
+                style={{ font: '400 11px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.45)' }}
+              >
+                Aplica una escena base. Tus capturas se conservan.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {SCENE_TEMPLATES.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => applyTemplate(t)}
+                    title={t.description}
+                    className="group flex cursor-pointer flex-col overflow-hidden rounded-xl border-0 p-0 text-left transition"
+                    style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.1)' }}
+                  >
+                    <span
+                      aria-hidden
+                      style={{ display: 'block', height: 44, background: t.thumbnail }}
+                    />
+                    <span
+                      className="px-2 py-1.5"
+                      style={{ font: '600 11px/1.2 var(--font-sans)', color: 'rgba(255,255,255,.85)' }}
+                    >
+                      {t.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </Section>
 
             {/* 1 · DEVICES — choose / add / remove */}
             <Section
@@ -1281,6 +1442,54 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                 })}
               </div>
 
+              <div className="mt-4 flex items-center justify-between">
+                <span
+                  style={{
+                    font: '600 10px/1 var(--font-sans)',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'rgba(255,255,255,.4)',
+                  }}
+                >
+                  Iluminación
+                </span>
+                <button
+                  type="button"
+                  onClick={resetLighting}
+                  className="cursor-pointer rounded-md border-0 bg-transparent px-2 py-1 text-xs transition"
+                  style={{ color: 'rgba(255,255,255,.45)', font: '500 11px/1 var(--font-sans)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,.8)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,.45)' }}
+                >
+                  Reset
+                </button>
+              </div>
+              {(
+                [
+                  { label: 'Ambiente HDRI', value: environmentIntensity, set: setEnvironmentIntensity, min: 0, max: 1.5 },
+                  { label: 'Luz ambiente', value: ambientIntensity, set: setAmbientIntensity, min: 0, max: 0.6 },
+                  { label: 'Luz principal', value: keyLightIntensity, set: setKeyLightIntensity, min: 0, max: 2 },
+                ] as const
+              ).map(({ label, value, set, min, max }) => (
+                <label
+                  key={label}
+                  className="mt-1.5 flex items-center gap-3 text-xs"
+                  style={{ color: 'rgba(255,255,255,.5)' }}
+                >
+                  <span className="w-24 shrink-0">{label}</span>
+                  <input
+                    type="range"
+                    min={min}
+                    max={max}
+                    step={0.01}
+                    value={value}
+                    onChange={(e) => set(Number(e.target.value))}
+                    className="min-w-0 flex-1 accent-[var(--accent)]"
+                  />
+                  <span className="w-9 shrink-0 tabular-nums text-right">{value.toFixed(2)}</span>
+                </label>
+              ))}
+
               <div className="mt-4 flex items-center justify-between gap-3">
                 <span className="flex flex-col">
                   <span style={{ font: '500 13px/1 var(--font-sans)', color: 'rgba(255,255,255,.85)' }}>
@@ -1340,6 +1549,76 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   </Pill>
                 ))}
               </div>
+
+              <div className="mt-3 flex items-center justify-between">
+                <span
+                  style={{
+                    font: '600 10px/1 var(--font-sans)',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'rgba(255,255,255,.4)',
+                  }}
+                >
+                  Vistas de cámara
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSaveCameraPreset}
+                  className="cursor-pointer rounded-md border-0 bg-transparent px-2 py-1 transition"
+                  style={{ color: 'var(--accent)', font: '600 11px/1 var(--font-sans)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.2)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
+                >
+                  + Guardar vista
+                </button>
+              </div>
+              <div className="mb-1 flex flex-wrap gap-1.5">
+                {BUILTIN_CAMERA_PRESETS.map((p) => (
+                  <Pill
+                    key={p.id}
+                    onClick={() => applyCameraPreset(p.pose)}
+                    className="px-2.5 py-1"
+                  >
+                    {p.name}
+                  </Pill>
+                ))}
+              </div>
+              {userCameraPresets.length > 0 && (
+                <div className="mb-1 flex flex-wrap gap-1.5">
+                  {userCameraPresets.map((p) => (
+                    <span
+                      key={p.id}
+                      className="flex items-center gap-1 rounded-full px-2.5 py-1"
+                      style={{
+                        background: 'rgba(255,255,255,.06)',
+                        border: '1px solid rgba(255,255,255,.12)',
+                        font: '500 12px/1 var(--font-sans)',
+                        color: 'rgba(255,255,255,.8)',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => applyCameraPreset(p.pose)}
+                        className="cursor-pointer border-0 bg-transparent p-0"
+                        style={{ color: 'inherit', font: 'inherit' }}
+                        title={`Aplicar ${p.name}`}
+                      >
+                        {p.name}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCameraPreset(p.id)}
+                        className="cursor-pointer border-0 bg-transparent p-0 leading-none"
+                        style={{ color: 'rgba(255,255,255,.4)', fontSize: 13 }}
+                        aria-label={`Eliminar ${p.name}`}
+                        title="Eliminar"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
 
               <SubLabel className="mt-3">Inclinación (roll)</SubLabel>
               <div className="mb-2 flex flex-wrap gap-1.5">
@@ -1413,6 +1692,29 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   Para exportar el clip de video usa el panel inferior ↓
                 </p>
               )}
+
+              <SubLabel>Formato (aspect ratio)</SubLabel>
+              <div className="mb-1 flex flex-wrap gap-1.5">
+                {ASPECT_PRESETS.map(({ id, label }) => (
+                  <Pill
+                    key={id}
+                    active={aspectPreset === id}
+                    onClick={() => {
+                      setAspectPreset(id)
+                      setExportError(null)
+                    }}
+                    className="px-2.5 py-1.5"
+                  >
+                    {label}
+                  </Pill>
+                ))}
+              </div>
+              <p
+                className="mb-3 leading-snug"
+                style={{ font: '400 11px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}
+              >
+                {ASPECT_PRESETS.find((p) => p.id === aspectPreset)?.hint}
+              </p>
 
               <SubLabel>Resolución</SubLabel>
               <div className="mb-2 grid grid-cols-2 gap-1.5">
@@ -1601,6 +1903,17 @@ function UploadGlyph({ className }: { className?: string }) {
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
       <polyline points="17 8 12 3 7 8" />
       <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  )
+}
+
+function TemplateGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
     </svg>
   )
 }

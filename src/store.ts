@@ -24,6 +24,14 @@ export type DeviceKind = 'phone' | 'mac'
 
 export type ScreenMediaKind = 'image' | 'video'
 
+export type AspectPreset = 'free' | '1:1' | '4:5' | '9:16' | '16:9' | 'og'
+
+export const LIGHTING_DEFAULTS = {
+  environmentIntensity: 0.74,
+  ambientIntensity: 0.2,
+  keyLightIntensity: 1.05,
+} as const
+
 export type DeviceInstance = {
   id: string
   screenshot: string | null
@@ -76,6 +84,10 @@ type State = {
   cameraTarget: [number, number, number]
   viewportAspect: number
   viewportInsetRight: number
+  aspectPreset: AspectPreset
+  environmentIntensity: number
+  ambientIntensity: number
+  keyLightIntensity: number
   hydrationSeq: number
   captureSceneAtSize: null | ((width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => string)
   captureSceneToCanvas: null | ((width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => HTMLCanvasElement)
@@ -102,6 +114,18 @@ type State = {
   setCameraPose: (position: [number, number, number], target: [number, number, number]) => void
   setViewportAspect: (aspect: number) => void
   setViewportInsetRight: (fraction: number) => void
+  setAspectPreset: (preset: AspectPreset) => void
+  setEnvironmentIntensity: (v: number) => void
+  setAmbientIntensity: (v: number) => void
+  setKeyLightIntensity: (v: number) => void
+  resetLighting: () => void
+  applyCameraPreset: (pose: {
+    cameraPosition: [number, number, number]
+    cameraTarget: [number, number, number]
+    orbitDistance: number
+    cameraRoll: number
+  }) => void
+  applySceneSnapshot: (snap: SceneSnapshotPatch) => void
   hydrateFromSnapshot: (snap: {
     devices: DeviceInstance[]
     bgColor: string
@@ -113,7 +137,26 @@ type State = {
     cameraTarget?: [number, number, number]
     viewportAspect?: number
     viewportInsetRight?: number
+    aspectPreset?: AspectPreset
+    environmentIntensity?: number
+    ambientIntensity?: number
+    keyLightIntensity?: number
   }) => void
+}
+
+/** Partial scene state a template can apply over the current project. */
+export type SceneSnapshotPatch = {
+  devices?: DeviceInstance[]
+  bgColor?: string
+  autoRotate?: boolean
+  cameraRoll?: number
+  orbitDistance?: number
+  cameraPosition?: [number, number, number]
+  cameraTarget?: [number, number, number]
+  aspectPreset?: AspectPreset
+  environmentIntensity?: number
+  ambientIntensity?: number
+  keyLightIntensity?: number
 }
 
 const firstDevice = makeDevice(0)
@@ -131,6 +174,10 @@ export const useStore = create<State>((set) => ({
   cameraTarget: [0, 0, 0],
   viewportAspect: 1,
   viewportInsetRight: 0,
+  aspectPreset: 'free',
+  environmentIntensity: LIGHTING_DEFAULTS.environmentIntensity,
+  ambientIntensity: LIGHTING_DEFAULTS.ambientIntensity,
+  keyLightIntensity: LIGHTING_DEFAULTS.keyLightIntensity,
   hydrationSeq: 0,
   captureSceneAtSize: null,
   captureSceneToCanvas: null,
@@ -218,6 +265,55 @@ export const useStore = create<State>((set) => ({
   setCameraPose: (position, target) => set({ cameraPosition: position, cameraTarget: target }),
   setViewportAspect: (aspect) => set({ viewportAspect: aspect }),
   setViewportInsetRight: (fraction) => set({ viewportInsetRight: Math.max(0, Math.min(0.95, fraction)) }),
+  setAspectPreset: (preset) => set({ aspectPreset: preset }),
+  setEnvironmentIntensity: (v) => set({ environmentIntensity: Math.max(0, Math.min(2, v)) }),
+  setAmbientIntensity: (v) => set({ ambientIntensity: Math.max(0, Math.min(1, v)) }),
+  setKeyLightIntensity: (v) => set({ keyLightIntensity: Math.max(0, Math.min(2, v)) }),
+  resetLighting: () => set({ ...LIGHTING_DEFAULTS }),
+
+  applyCameraPreset: (pose) =>
+    set((s) => ({
+      cameraPosition: [...pose.cameraPosition] as [number, number, number],
+      cameraTarget: [...pose.cameraTarget] as [number, number, number],
+      orbitDistance: pose.orbitDistance,
+      cameraRoll: wrapCameraRoll(pose.cameraRoll),
+      // Bump so OrbitControls snaps the camera to the new pose (same path as hydration).
+      hydrationSeq: s.hydrationSeq + 1,
+    })),
+
+  applySceneSnapshot: (snap) =>
+    set((s) => {
+      const devices = snap.devices
+        ? snap.devices.map((d) => ({
+            ...d,
+            deviceRotation: [
+              wrapSignedPi(d.deviceRotation[0]),
+              wrapSignedPi(d.deviceRotation[1]),
+              wrapSignedPi(d.deviceRotation[2]),
+            ] as [number, number, number],
+            deviceScale: clampDeviceScale(d.deviceScale ?? 1),
+          }))
+        : s.devices
+      return {
+        devices,
+        activeDeviceId: devices[0]?.id ?? s.activeDeviceId,
+        bgColor: snap.bgColor ?? s.bgColor,
+        autoRotate: snap.autoRotate ?? s.autoRotate,
+        cameraRoll: wrapCameraRoll(snap.cameraRoll ?? s.cameraRoll),
+        orbitDistance: snap.orbitDistance ?? s.orbitDistance,
+        cameraPosition: snap.cameraPosition
+          ? ([...snap.cameraPosition] as [number, number, number])
+          : s.cameraPosition,
+        cameraTarget: snap.cameraTarget
+          ? ([...snap.cameraTarget] as [number, number, number])
+          : s.cameraTarget,
+        aspectPreset: snap.aspectPreset ?? s.aspectPreset,
+        environmentIntensity: snap.environmentIntensity ?? s.environmentIntensity,
+        ambientIntensity: snap.ambientIntensity ?? s.ambientIntensity,
+        keyLightIntensity: snap.keyLightIntensity ?? s.keyLightIntensity,
+        hydrationSeq: s.hydrationSeq + 1,
+      }
+    }),
 
   hydrateFromSnapshot: (snap) =>
     set((s) => {
@@ -248,6 +344,10 @@ export const useStore = create<State>((set) => ({
         cameraTarget: snap.cameraTarget ?? [0, 0, 0],
         viewportAspect: snap.viewportAspect ?? 1,
         viewportInsetRight: snap.viewportInsetRight ?? 0,
+        aspectPreset: snap.aspectPreset ?? 'free',
+        environmentIntensity: snap.environmentIntensity ?? LIGHTING_DEFAULTS.environmentIntensity,
+        ambientIntensity: snap.ambientIntensity ?? LIGHTING_DEFAULTS.ambientIntensity,
+        keyLightIntensity: snap.keyLightIntensity ?? LIGHTING_DEFAULTS.keyLightIntensity,
         hydrationSeq: s.hydrationSeq + 1,
       }
     }),

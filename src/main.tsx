@@ -6,6 +6,9 @@ import App from './App.tsx'
 import Landing from './Landing.tsx'
 import EmbedView from './EmbedView.tsx'
 import TermsPage from './TermsPage.tsx'
+import TemplatesPage from './TemplatesPage.tsx'
+import PricingPage from './PricingPage.tsx'
+import ChangelogPage from './ChangelogPage.tsx'
 import { HeadlessScene } from './HeadlessScene.tsx'
 import { AuthModal } from './AuthModal.tsx'
 import { useAuth, SUPABASE_ENABLED } from './useAuth.ts'
@@ -18,7 +21,7 @@ const MESH_BG = [
   'linear-gradient(180deg, #f4ecff 0%, #ffefe7 100%)',
 ].join(', ')
 
-type Mode = 'landing' | 'studio' | 'embed' | 'terms' | 'headless'
+type Mode = 'landing' | 'studio' | 'embed' | 'terms' | 'headless' | 'templates' | 'pricing' | 'changelog'
 
 function readMode(): { mode: Mode; projectId: string | null } {
   const q = new URLSearchParams(location.search)
@@ -26,6 +29,9 @@ function readMode(): { mode: Mode; projectId: string | null } {
   if (q.has('embed') && projectId) return { mode: 'embed', projectId }
   if (q.has('studio')) return { mode: 'studio', projectId }
   if (q.has('terms')) return { mode: 'terms', projectId: null }
+  if (q.has('templates')) return { mode: 'templates', projectId: null }
+  if (q.has('pricing')) return { mode: 'pricing', projectId: null }
+  if (q.has('changelog')) return { mode: 'changelog', projectId: null }
   if (q.has('headless')) return { mode: 'headless', projectId: null }
   return { mode: 'landing', projectId: null }
 }
@@ -118,6 +124,12 @@ function Root() {
   if (mode === 'embed' && projectId) return <EmbedView projectId={projectId} />
 
   if (mode === 'terms') return <TermsPage />
+
+  if (mode === 'templates') return <TemplatesPage />
+
+  if (mode === 'pricing') return <PricingPage />
+
+  if (mode === 'changelog') return <ChangelogPage />
 
   if (mode === 'studio') {
     // While auth is resolving, show a minimal dark splash instead of flashing the studio

@@ -33,7 +33,13 @@ const Logo = () => (
   </div>
 )
 
-const navLinks = ['Features', 'Gallery', 'Templates', 'Pricing', 'Changelog']
+const navLinks: { label: string; href: string }[] = [
+  { label: 'Features', href: '#features' },
+  { label: 'Gallery', href: '#gallery' },
+  { label: 'Templates', href: '?templates' },
+  { label: 'Pricing', href: '?pricing' },
+  { label: 'Changelog', href: '?changelog' },
+]
 
 const MCP_SERVER_NAME = 'mcp-openmockup'
 const MCP_CONFIG = { command: 'npx', args: ['-y', MCP_SERVER_NAME] } as const
@@ -89,14 +95,14 @@ const features = [
   {
     icon: '▢',
     color: '#6e4bff',
-    title: '30+ devices',
-    body: 'iPhone, Mac, iPad, Watch, Vision Pro, and more. Every angle, every color.',
+    title: 'iPhone & Mac',
+    body: 'Drop a screen into an iPhone or MacBook. Every angle, every color, multi-device scenes.',
   },
   {
     icon: '✦',
     color: '#6e4bff',
     title: 'Motion mockups',
-    body: 'Record screen captures inside the device. Export as GIF or Lottie in one click.',
+    body: 'Play a screen recording inside the device. Export as GIF or MP4/WebM in one click.',
   },
 ]
 
@@ -298,14 +304,15 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
         <Logo />
         <div className="landing-nav-links">
           {navLinks.map(l => (
-            <button key={l} style={{
+            <a key={l.label} href={l.href} style={{
               padding: '6px 12px', border: 'none', background: 'transparent',
               font: '500 14px/1 var(--font-sans)', color: 'var(--fg-2)',
               cursor: 'pointer', borderRadius: 'var(--radius)', letterSpacing: '-0.005em',
+              textDecoration: 'none',
             }}
             onMouseEnter={e => (e.currentTarget.style.color = 'var(--fg)')}
             onMouseLeave={e => (e.currentTarget.style.color = 'var(--fg-2)')}
-            >{l}</button>
+            >{l.label}</a>
           ))}
         </div>
         <div className="landing-nav-ctas">
@@ -360,7 +367,7 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
       </nav>
       <div className="landing-mobile-menu" data-open={menuOpen ? 'true' : 'false'} role="navigation" aria-label="Mobile">
         {navLinks.map(l => (
-          <button key={l} type="button" onClick={() => setMenuOpen(false)}>{l}</button>
+          <a key={l.label} href={l.href} onClick={() => setMenuOpen(false)}>{l.label}</a>
         ))}
         <button type="button" onClick={() => { setMenuOpen(false); onEnter() }}>Open studio</button>
       </div>
@@ -455,7 +462,7 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
         </div>
       </div>
 
-      <section className="landing-section">
+      <section id="features" className="landing-section" style={{ scrollMarginTop: 80 }}>
         <div ref={featuresHeaderRef} className="landing-reveal" style={{ marginBottom: 56 }}>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -504,7 +511,7 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
         </div>
       </section>
 
-      <section className="landing-gallery-section">
+      <section id="gallery" className="landing-gallery-section" style={{ scrollMarginTop: 80 }}>
         <div ref={galleryHeaderRef} className="landing-gallery-header landing-reveal">
           <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 'clamp(28px, 3vw, 44px)', letterSpacing: '-0.04em', margin: 0, color: 'var(--fg)' }}>
             See it in action
@@ -553,12 +560,12 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
             onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.06)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
             onMouseLeave={e => { e.currentTarget.style.filter = ''; e.currentTarget.style.transform = '' }}
             >Open openmockup.dev <span className="landing-cta-arrow">→</span></button>
-            <button style={{
+            <a href="?pricing" style={{
               padding: '14px 22px', borderRadius: 999,
               border: '1px solid var(--border-2)', background: 'var(--surface-2)',
               font: '500 16px/1 var(--font-sans)', color: 'var(--fg)',
-              cursor: 'pointer',
-            }}>See pricing</button>
+              cursor: 'pointer', textDecoration: 'none',
+            }}>See pricing</a>
           </div>
           <p style={{ fontSize: 13, color: 'var(--fg-3)', margin: '20px 0 0' }}>
             Works in your browser · No install required
@@ -569,6 +576,10 @@ export default function Landing({ onEnter, onSignIn, userEmail, onSignOut }: Pro
       <footer className="landing-footer">
         <Logo />
         <span style={{ fontSize: 13, color: 'var(--fg-3)' }}>Built with care in Bogotá</span>
+        <a href="?changelog" style={{ fontSize: 13, color: 'var(--fg-3)', textDecoration: 'none' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--fg)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--fg-3)')}
+        >Changelog</a>
         <a href="?terms" style={{ fontSize: 13, color: 'var(--fg-3)', textDecoration: 'none' }}
           onMouseEnter={e => (e.currentTarget.style.color = 'var(--fg)')}
           onMouseLeave={e => (e.currentTarget.style.color = 'var(--fg-3)')}

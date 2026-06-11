@@ -5,7 +5,9 @@
 import * as THREE from 'three'
 import { captureSceneToPngDataUrl } from './highResCapture'
 import { isGradientBg } from './gradients'
-import { useStore } from './store'
+import { useStore, type AspectPreset } from './store'
+import { getAspectPreset } from './aspectPresets'
+import { getBuiltinCameraPreset, type BuiltinCameraPresetId } from './cameraPresets'
 
 export type RenderMockupDevice = {
   kind?: 'phone' | 'mac'
@@ -32,8 +34,18 @@ export type RenderMockupOpts = {
   camera_offset_y?: number
   /** Roll the camera around the Z axis (radians). Matches the cameraRoll store value. */
   camera_roll?: number
+  /** Built-in camera view: front, hero, dramatic, topdown. Overrides default framing. */
+  camera_preset?: BuiltinCameraPresetId
   /** Render with transparent background PNG. Ignores bgColor when true. */
   transparent?: boolean
+  /** Social aspect-ratio preset. When set (and width/height omitted) the output size is derived from it. */
+  aspectPreset?: AspectPreset
+  /** HDRI environment light intensity (0–2). */
+  environmentIntensity?: number
+  /** Ambient fill light intensity (0–1). */
+  ambientIntensity?: number
+  /** Main key light intensity (0–2). */
+  keyLightIntensity?: number
   /** Multi-device scene. Overrides single-device fields when provided. */
   devices?: RenderMockupDevice[]
 }
@@ -56,7 +68,15 @@ function waitFrames(n: number): Promise<void> {
 
   // Stop auto-rotate so the device stays at the exact angle we set
   store.setAutoRotate(false)
+  if (opts.camera_preset) {
+    const camPreset = getBuiltinCameraPreset(opts.camera_preset)
+    if (camPreset) store.applyCameraPreset(camPreset.pose)
+  }
   if (typeof opts.camera_roll === 'number') store.setCameraRoll(opts.camera_roll)
+  if (opts.aspectPreset) store.setAspectPreset(opts.aspectPreset)
+  if (typeof opts.environmentIntensity === 'number') store.setEnvironmentIntensity(opts.environmentIntensity)
+  if (typeof opts.ambientIntensity === 'number') store.setAmbientIntensity(opts.ambientIntensity)
+  if (typeof opts.keyLightIntensity === 'number') store.setKeyLightIntensity(opts.keyLightIntensity)
 
   // Build the device list — multi-device wins, otherwise synthesize a single device from top-level fields.
   const requested: RenderMockupDevice[] =
@@ -119,8 +139,11 @@ function waitFrames(n: number): Promise<void> {
     return null
   }
 
-  const w = opts.width ?? 1440
-  const h = opts.height ?? 2880
+  // A fixed aspect preset provides default dimensions when width/height aren't given.
+  const presetDims =
+    opts.aspectPreset && opts.aspectPreset !== 'free' ? getAspectPreset(opts.aspectPreset) : null
+  const w = opts.width ?? presetDims?.exportW ?? 1440
+  const h = opts.height ?? presetDims?.exportH ?? 2880
   const zoom = opts.zoom ?? 1
 
   const ctx = await waitForMockitCtx()
@@ -137,6 +160,23 @@ function waitFrames(n: number): Promise<void> {
 
     const ox = opts.camera_offset_x ?? 0
     const oy = opts.camera_offset_y ?? 0
+
+    // When a built-in camera preset (or explicit roll) is used, sync the live
+    // Three.js camera to the store pose before capture — headless mode doesn't
+    // always wait for OrbitControls to reconcile in time.
+    if (opts.camera_preset || typeof opts.camera_roll === 'number') {
+      const s = useStore.getState()
+      const [px, py, pz] = s.cameraPosition
+      const [tx, ty, tz] = s.cameraTarget
+      camera.position.set(px, py, pz)
+      camera.lookAt(tx, ty, tz)
+      if (s.cameraRoll !== 0) {
+        const rollQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, -1), s.cameraRoll)
+        camera.quaternion.multiply(rollQuat)
+      }
+      camera.updateProjectionMatrix()
+    }
+
     const savedPos = camera.position.clone()
     const savedQuat = camera.quaternion.clone()
     if (ox !== 0 || oy !== 0) {

@@ -139,6 +139,10 @@ export class SupabaseProjectStore implements ProjectStore {
       cameraTarget: [0, 0, 0],
       viewportAspect: 1,
       viewportInsetRight: 0,
+      aspectPreset: 'free',
+      environmentIntensity: 0.74,
+      ambientIntensity: 0.2,
+      keyLightIntensity: 1.05,
     }
 
     const { data, error } = await supabase

@@ -40,15 +40,19 @@ const featureRow = (label: string, free: boolean, pro: boolean) => ({ label, fre
 
 const FEATURES = [
   featureRow('Mockups 3D ilimitados', true, true),
-  featureRow('iPhone y MacBook', true, true),
+  featureRow('iPhone, MacBook, iPad y Watch', true, true),
+  featureRow('Batch export (ZIP) en el studio', true, true),
+  featureRow('Animación de cámara (presets + keyframes)', true, true),
+  featureRow('Agente AI con upload y export', true, true),
+  featureRow('Video persistente en proyectos (Supabase)', true, true),
   featureRow('Export PNG hasta 8K', true, true),
   featureRow('Export video (MP4 / WebM) y GIF', true, true),
   featureRow('Fondo transparente y chroma key', true, true),
   featureRow('Templates y aspect ratios sociales', true, true),
   featureRow('Servidor MCP para Cursor y Claude', true, true),
   featureRow('Galería pública sin marca de agua', true, true),
-  featureRow('Más dispositivos (iPad, Watch, Vision Pro)', false, true),
-  featureRow('Batch export y API server-side', false, true),
+  featureRow('API batch render (Playwright)', false, true),
+  featureRow('Vision Pro y más dispositivos', false, true),
   featureRow('Workspaces de equipo', false, true),
 ]
 

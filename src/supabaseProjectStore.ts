@@ -1,6 +1,8 @@
 import { supabase } from './supabase'
 import type { Project, ProjectSnapshot, ProjectStore, ProjectSummary } from './projectStore'
 import type { Json } from './database.types'
+import { normalizeSnapshotForSave } from './snapshotNormalize'
+import { deleteProjectMedia, resolveSnapshotMediaUrls } from './mediaStorage'
 
 const LAST_OPENED_KEY = 'openmockup.lastProjectId.v1'
 
@@ -18,15 +20,7 @@ if (supabase) {
 }
 
 function stripBlobUrls(snapshot: ProjectSnapshot): ProjectSnapshot {
-  return {
-    ...snapshot,
-    devices: snapshot.devices.map((d) => ({
-      ...d,
-      // blob: URLs are session-only and cannot be persisted
-      screenshot: d.screenMediaKind === 'video' ? null : d.screenshot,
-      screenMediaKind: d.screenMediaKind === 'video' ? null : d.screenMediaKind,
-    })),
-  }
+  return normalizeSnapshotForSave(snapshot)
 }
 
 export class SupabaseProjectStore implements ProjectStore {
@@ -99,6 +93,9 @@ export class SupabaseProjectStore implements ProjectStore {
     if (error) throw error
     if (!data) return null
 
+    const snapshot = data.snapshot as ProjectSnapshot
+    await resolveSnapshotMediaUrls(snapshot.devices, data.is_public)
+
     return {
       id: data.id,
       name: data.name,
@@ -106,7 +103,7 @@ export class SupabaseProjectStore implements ProjectStore {
       updatedAt: new Date(data.updated_at).getTime(),
       isPublic: data.is_public,
       thumbnail: data.thumbnail ?? null,
-      snapshot: data.snapshot as ProjectSnapshot,
+      snapshot,
     }
   }
 
@@ -199,6 +196,12 @@ export class SupabaseProjectStore implements ProjectStore {
   }
 
   async delete(id: string): Promise<void> {
+    try {
+      const userId = await this.userId()
+      await deleteProjectMedia(userId, id)
+    } catch {
+      /* best-effort cleanup */
+    }
     const { error } = await supabase.from('projects').delete().eq('id', id)
     if (error) throw error
     if (this.getLastOpenedId() === id) this.setLastOpenedId(null)

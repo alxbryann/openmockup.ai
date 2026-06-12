@@ -1,5 +1,9 @@
 import { Muxer as Mp4Muxer, ArrayBufferTarget as Mp4ArrayBufferTarget } from 'mp4-muxer'
 import { Muxer as WebmMuxer, ArrayBufferTarget as WebmArrayBufferTarget } from 'webm-muxer'
+import { findGradientPreset } from './gradients'
+import { syncLiveCameraFromPose, waitFrames, ensureEven } from './cameraSync'
+import { evaluateCameraKeyframes, evaluateCameraMotion } from './cameraMotionPresets'
+import { useStore } from './store'
 
 export type VideoExportPreset = 'screen' | 1920 | 3840
 
@@ -87,17 +91,24 @@ export function seekVideoTo(video: HTMLVideoElement, time: number): Promise<void
   })
 }
 
-/** Pick H.264 level + profile string matching the output resolution and fps. */
-function avcCodecString(width: number, height: number, fps: number): string {
+/** Pick H.264 level + profile strings to try, ordered most-to-least capable. */
+function avcCodecCandidates(width: number, height: number, fps: number): string[] {
   const pixelsPerSec = width * height * fps
-  // High profile, AVC level encoded as hex byte
-  // 4K @ 60: level 5.2 → 0x34 ; 4K @ 30: level 5.1 → 0x33
-  // 1080p @ 60: level 4.2 → 0x2A ; 1080p @ 30: level 4.0 → 0x28
+  const maxDim = Math.max(width, height)
+  const candidates: string[] = []
+
+  // High profile levels
   let levelHex = '34'
   if (pixelsPerSec <= 1920 * 1080 * 30) levelHex = '28'
   else if (pixelsPerSec <= 1920 * 1080 * 60) levelHex = '2A'
   else if (pixelsPerSec <= 3840 * 2160 * 30) levelHex = '33'
-  return `avc1.6400${levelHex}` // High profile
+  candidates.push(`avc1.6400${levelHex}`)
+
+  // Baseline / Main fallbacks — widely supported on macOS Safari and older GPUs
+  if (maxDim <= 1920) candidates.push('avc1.420028', 'avc1.4D0028')
+  if (maxDim <= 1280) candidates.push('avc1.42001F')
+
+  return [...new Set(candidates)]
 }
 
 /** VP9 profile 0 baseline (8-bit 4:2:0). Used when exporting WebM with alpha. */
@@ -129,31 +140,41 @@ async function buildEncoderForMp4(
   effectiveFps: number,
   bitrate: number,
 ): Promise<EncoderRig> {
-  const codec = avcCodecString(outW, outH, effectiveFps)
-  const baseConfig: VideoEncoderConfig = {
-    codec,
-    width: outW,
-    height: outH,
-    bitrate,
-    framerate: effectiveFps,
-    bitrateMode: 'variable',
-    latencyMode: 'quality',
-    avc: { format: 'avc' },
-  }
+  const codecs = avcCodecCandidates(outW, outH, effectiveFps)
+  const accels = ['prefer-hardware', 'no-preference', 'prefer-software'] as const
+  const avcFormats = [{ format: 'avc' as const }, { format: 'annexb' as const }]
 
   let chosenConfig: VideoEncoderConfig | null = null
-  for (const accel of ['prefer-hardware', 'no-preference'] as const) {
-    const cfg: VideoEncoderConfig = { ...baseConfig, hardwareAcceleration: accel }
-    const ok = await VideoEncoder.isConfigSupported(cfg)
-      .then((r) => r.supported === true)
-      .catch(() => false)
-    if (ok) {
-      chosenConfig = cfg
-      break
+
+  outer: for (const codec of codecs) {
+    for (const accel of accels) {
+      for (const avc of avcFormats) {
+        const cfg: VideoEncoderConfig = {
+          codec,
+          width: outW,
+          height: outH,
+          bitrate,
+          framerate: effectiveFps,
+          bitrateMode: 'variable',
+          latencyMode: 'quality',
+          avc,
+          hardwareAcceleration: accel,
+        }
+        const ok = await VideoEncoder.isConfigSupported(cfg)
+          .then((r) => r.supported === true)
+          .catch(() => false)
+        if (ok) {
+          chosenConfig = cfg
+          break outer
+        }
+      }
     }
   }
+
   if (!chosenConfig) {
-    throw new Error('Tu navegador no soporta H.264 a esta resolución. Prueba "1080p" o usa Chrome/Edge actualizado.')
+    throw new Error(
+      `H.264 no disponible a ${outW}×${outH}. Elige resolución 1080p en Motion o usa Chrome/Edge.`,
+    )
   }
 
   const muxer = new Mp4Muxer({
@@ -378,5 +399,119 @@ export async function exportVideoFrameByFrame(opts: {
       videoElement.currentTime = startTime
       void videoElement.play().catch(() => {})
     }
+  }
+}
+
+/** Export camera motion animation without a screen video source. */
+export async function exportCameraMotionVideo(opts: {
+  captureFrame: (w: number, h: number, opts?: { transparent?: boolean; bgCss?: string }) => HTMLCanvasElement
+  bgCss: string
+  bgMode?: VideoExportBgMode
+  width: number
+  height: number
+  fps?: number
+  durationSec: number
+  cameraMotionPresetId?: string
+  cameraKeyframes?: import('./cameraMotionPresets').CameraKeyframe[]
+  onProgress?: (p: ExportProgress) => void
+  signal?: AbortSignal
+}): Promise<Blob> {
+  const {
+    captureFrame,
+    bgCss,
+    bgMode = 'solid',
+    width,
+    height,
+    fps = 30,
+    durationSec,
+    onProgress,
+    signal,
+  } = opts
+
+  const outW = ensureEven(width)
+  const outH = ensureEven(height)
+  const effectiveFps = Math.max(1, Math.round(fps))
+  const totalFrames = Math.ceil(durationSec * effectiveFps)
+  if (totalFrames === 0) throw new Error('No frames to export')
+
+  const store = useStore.getState()
+  store.setAutoRotate(false)
+
+  const motionStart = {
+    cameraPosition: [...store.cameraPosition] as [number, number, number],
+    cameraTarget: [...store.cameraTarget] as [number, number, number],
+    orbitDistance: store.orbitDistance,
+    cameraRoll: store.cameraRoll,
+  }
+
+  if (typeof VideoEncoder === 'undefined') {
+    throw new Error('VideoEncoder not supported in this browser. Use Chrome or Edge.')
+  }
+
+  const ctx = (window as unknown as { __mockitCtx?: unknown }).__mockitCtx
+  if (!ctx) {
+    throw new Error('Scene not ready. Wait for the 3D canvas to load and try again.')
+  }
+
+  const targetBitrate = targetBitrateFor(outW, outH, effectiveFps)
+  const rig: EncoderRig = bgMode === 'transparent'
+    ? await buildEncoderForWebmAlpha(outW, outH, effectiveFps, targetBitrate)
+    : await buildEncoderForMp4(outW, outH, effectiveFps, targetBitrate)
+
+  // Only pass bgCss when it's a known gradient or solid hex — same rules as video export.
+  const captureBgCss =
+    bgMode === 'solid' && (findGradientPreset(bgCss) || bgCss.startsWith('#')) ? bgCss : undefined
+  const captureOpts: { transparent?: boolean; bgCss?: string } =
+    bgMode === 'transparent'
+      ? { transparent: true }
+      : bgMode === 'green'
+        ? { bgCss: CHROMA_KEY_GREEN }
+        : captureBgCss
+          ? { bgCss: captureBgCss }
+          : {}
+
+  try {
+    for (let i = 0; i < totalFrames; i++) {
+      if (signal?.aborted) throw new Error('Export cancelled')
+
+      const t = totalFrames <= 1 ? 0 : i / (totalFrames - 1)
+      const timeSec = t * durationSec
+
+      let pose = motionStart
+      if (opts.cameraKeyframes && opts.cameraKeyframes.length >= 2) {
+        pose = evaluateCameraKeyframes(opts.cameraKeyframes, timeSec)
+      } else if (opts.cameraMotionPresetId) {
+        pose = evaluateCameraMotion(opts.cameraMotionPresetId, t, motionStart)
+      }
+
+      // Direct camera sync — React useFrame won't run mid-loop without a re-render.
+      syncLiveCameraFromPose(pose)
+      await waitFrames(2)
+
+      const frameCanvas = captureFrame(outW, outH, captureOpts)
+      const timestamp = Math.round((i / effectiveFps) * 1_000_000)
+      const frameDuration = Math.round((1 / effectiveFps) * 1_000_000)
+      const isKeyFrame = i % (effectiveFps * 2) === 0
+      const videoFrame = new VideoFrame(
+        frameCanvas,
+        rig.kind === 'webm-alpha'
+          ? { timestamp, duration: frameDuration, alpha: 'keep' }
+          : { timestamp, duration: frameDuration },
+      )
+      rig.encoder.encode(videoFrame, { keyFrame: isKeyFrame })
+      videoFrame.close()
+      onProgress?.({ frame: i + 1, totalFrames, ratio: (i + 1) / totalFrames })
+    }
+
+    await rig.encoder.flush()
+    rig.encoder.close()
+    return rig.finalize()
+  } catch (e) {
+    try {
+      rig.encoder.close()
+    } catch {
+      /* ignore */
+    }
+    throw e
   }
 }

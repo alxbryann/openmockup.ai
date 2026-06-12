@@ -40,6 +40,19 @@ type Release = { version: string; date: string; tag: string; items: string[] }
 
 const RELEASES: Release[] = [
   {
+    version: '0.3',
+    date: 'Junio 2026',
+    tag: 'Platform',
+    items: [
+      'Persistencia de video en Supabase Storage — los clips sobreviven al reload.',
+      'Batch export: muchos screenshots → un ZIP con el mismo template.',
+      'API /api/render y /api/render/batch con Playwright (Vercel).',
+      'Animación de cámara: presets (orbit in, hero sweep…) + editor de keyframes.',
+      'Nuevos dispositivos: iPad y Apple Watch (procedural).',
+      'Agente AI: subir screenshot, aplicar preset de cámara y exportar PNG.',
+    ],
+  },
+  {
     version: '0.2',
     date: 'Junio 2026',
     tag: 'Quick wins',

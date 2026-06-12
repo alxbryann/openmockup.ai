@@ -25,12 +25,20 @@ import {
 } from './Scene'
 import { useStore, type DeviceKind } from './store'
 import { inferScreenMediaKind, revokeScreenSrc } from './screenMedia'
+import {
+  deleteDeviceMedia,
+  isStorageConfigured,
+  uploadDeviceVideo,
+} from './mediaStorage'
 import { VideoTimelineIsland } from './VideoTimelineIsland'
 import { useVideoScreenBridge } from './videoScreenBridge'
 import { GRADIENT_PRESETS } from './gradients'
 import { projectStore, snapshotFromStoreState, type Project } from './projectStore'
 import { ProjectPicker } from './ProjectPicker'
 import { AgentPanel } from './AgentPanel'
+import { BatchExportPanel } from './BatchExportPanel'
+import { MotionPanel } from './MotionPanel'
+import { MotionTimeline } from './MotionTimeline'
 
 type AppProps = { initialProjectId?: string | null }
 
@@ -42,11 +50,13 @@ type AppProps = { initialProjectId?: string | null }
  */
 type PngBgMode = 'solid' | 'green' | 'transparent'
 
-type StudioSectionId = 'templates' | 'devices' | 'content' | 'design' | 'layout' | 'scene' | 'camera'
+type StudioSectionId = 'templates' | 'devices' | 'content' | 'design' | 'layout' | 'scene' | 'camera' | 'motion' | 'batch'
 
 const DEVICE_OPTIONS: { id: DeviceKind; label: string }[] = [
   { id: 'phone', label: 'Phone' },
   { id: 'mac', label: 'Mac' },
+  { id: 'ipad', label: 'iPad' },
+  { id: 'watch', label: 'Watch' },
 ]
 
 type ExportPreset = 'screen' | 1920 | 3840 | 7680
@@ -169,6 +179,8 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   )
 
   const { user } = useAuth()
+  const mediaUploadInFlight = useStore((s) => s.mediaUploadInFlight)
+  const setMediaUploadInFlight = useStore((s) => s.setMediaUploadInFlight)
 
   async function handleSignOut() {
     history.pushState(null, '', '/')
@@ -344,7 +356,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   // so continuous changes (e.g. auto-rotate ticking each frame) still persist
   // and keep the gallery thumbnail fresh.
   useEffect(() => {
-    if (!activeProject || !projectReadyRef.current) return
+    if (!activeProject || !projectReadyRef.current || mediaUploadInFlight) return
 
     const projectId = activeProject.id
 
@@ -399,7 +411,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     if (autosaveMaxWaitRef.current == null) {
       autosaveMaxWaitRef.current = window.setTimeout(commitSave, 2500)
     }
-  }, [activeProject, devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight, aspectPreset, environmentIntensity, ambientIntensity, keyLightIntensity])
+  }, [activeProject, devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight, aspectPreset, environmentIntensity, ambientIntensity, keyLightIntensity, mediaUploadInFlight])
 
   // Cancel any pending autosave for the previous project when the active
   // project changes (or when the studio unmounts). Without this, the 2.5 s
@@ -493,6 +505,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const [pngBgMode, setPngBgMode] = useState<PngBgMode>('solid')
   const [exportError, setExportError] = useState<string | null>(null)
   const [studioReady, setStudioReady] = useState(false)
+  const [batchOpen, setBatchOpen] = useState(false)
   const [openSections, setOpenSections] = useState<Record<StudioSectionId, boolean>>({
     templates: false,
     devices: true,
@@ -501,6 +514,8 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     layout: false,
     scene: true,
     camera: false,
+    motion: false,
+    batch: false,
   })
   const toggleSection = useCallback((id: StudioSectionId) => {
     setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -550,9 +565,13 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   function clearActiveScreen() {
     revokeScreenSrc(activeDevice.screenshot, activeDevice.screenMediaKind)
     useVideoScreenBridge.getState().unregisterVideo(activeDevice.id)
+    if (activeDevice.screenMediaStoragePath && isStorageConfigured()) {
+      void deleteDeviceMedia(activeDevice.screenMediaStoragePath)
+    }
     updateDevice(activeDevice.id, {
       screenshot: null,
       screenMediaKind: null,
+      screenMediaStoragePath: null,
       screenLoadError: null,
       videoStartTime: 0,
       videoEndTime: null,
@@ -566,12 +585,45 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     if (mediaKind === 'video') {
       revokeScreenSrc(activeDevice.screenshot, activeDevice.screenMediaKind)
       const objectUrl = URL.createObjectURL(file)
+      const prevStoragePath = activeDevice.screenMediaStoragePath
       updateDevice(activeDevice.id, {
         screenshot: objectUrl,
         screenMediaKind: 'video',
         videoStartTime: 0,
         videoEndTime: null,
+        videoUploadInFlight: true,
+        screenMediaStoragePath: null,
       })
+      setMediaUploadInFlight(true)
+
+      if (isStorageConfigured() && user && activeProjectIdRef.current) {
+        try {
+          const storagePath = await uploadDeviceVideo(
+            user.id,
+            activeProjectIdRef.current,
+            activeDevice.id,
+            file,
+          )
+          if (prevStoragePath && prevStoragePath !== storagePath) {
+            void deleteDeviceMedia(prevStoragePath)
+          }
+          updateDevice(activeDevice.id, {
+            screenMediaStoragePath: storagePath,
+            videoUploadInFlight: false,
+          })
+        } catch (err) {
+          console.error(err)
+          updateDevice(activeDevice.id, {
+            screenLoadError: 'Could not upload video. Check your connection and try again.',
+            videoUploadInFlight: false,
+          })
+        } finally {
+          setMediaUploadInFlight(false)
+        }
+      } else {
+        updateDevice(activeDevice.id, { videoUploadInFlight: false })
+        setMediaUploadInFlight(false)
+      }
       return
     }
 
@@ -597,7 +649,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
           : 'Could not read the file.',
       })
     }
-  }, [activeDevice, updateDevice])
+  }, [activeDevice, updateDevice, user, setMediaUploadInFlight])
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -1656,6 +1708,39 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
               </label>
             </Section>
 
+            <Section
+              id="motion"
+              title="Motion"
+              icon={<CameraNavGlyph className="h-3.5 w-3.5 shrink-0" />}
+              hint="Camera animation"
+              open={openSections.motion}
+              onToggle={() => toggleSection('motion')}
+            >
+              <MotionPanel />
+              <MotionTimeline />
+            </Section>
+
+            <Section
+              id="batch"
+              title="Batch"
+              icon={<DownloadGlyph className="h-4 w-4 shrink-0" />}
+              hint="Many PNGs → ZIP"
+              open={openSections.batch}
+              onToggle={() => toggleSection('batch')}
+            >
+              <p style={{ font: '400 11px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.45)', margin: '0 0 10px' }}>
+                Apply one template to many screenshots.
+              </p>
+              <button
+                type="button"
+                onClick={() => setBatchOpen(true)}
+                className="w-full cursor-pointer rounded-xl border-0 py-2.5"
+                style={{ background: 'var(--accent)', color: '#fff', font: '600 12px/1 var(--font-sans)' }}
+              >
+                Open batch export
+              </button>
+            </Section>
+
             {/* 7 · EXPORT — primary CTA, always visible */}
             <div
               className="mt-2 rounded-2xl p-4"
@@ -1815,6 +1900,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
           }
         }}
       />
+      {batchOpen && <BatchExportPanel onClose={() => setBatchOpen(false)} />}
     </div>
   )
 }

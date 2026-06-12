@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useStore } from './store'
 import { GRADIENT_PRESETS } from './gradients'
 import { ASPECT_PRESETS } from './aspectPresets'
+import { getBuiltinCameraPreset } from './cameraPresets'
+import { resolveExportDimensions } from './aspectPresets'
 import { SCENE_TEMPLATES, buildTemplateSnapshot, getSceneTemplate } from './sceneTemplates'
 
 const API_KEY_STORAGE = 'openmockup.deepseekKey.v1'
@@ -55,7 +57,7 @@ const STUDIO_TOOLS = [
       parameters: {
         type: 'object' as const,
         properties: {
-          kind: { type: 'string', enum: ['phone', 'mac'], description: 'phone = iPhone 17, mac = MacBook' },
+          kind: { type: 'string', enum: ['phone', 'mac', 'ipad', 'watch'], description: 'phone = iPhone, mac = MacBook, ipad, watch' },
         },
         required: ['kind'],
       },
@@ -116,7 +118,7 @@ const STUDIO_TOOLS = [
         type: 'object' as const,
         properties: {
           index: { type: 'integer', minimum: 0 },
-          kind: { type: 'string', enum: ['phone', 'mac'] },
+          kind: { type: 'string', enum: ['phone', 'mac', 'ipad', 'watch'] },
         },
         required: ['index', 'kind'],
       },
@@ -267,6 +269,59 @@ const STUDIO_TOOLS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'set_device_screenshot',
+      description: 'Set an image on a device screen from a data URL or fetchable image URL.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          index: { type: 'integer', minimum: 0 },
+          image_data_url: { type: 'string', description: 'Base64 data URL (data:image/...)' },
+          image_url: { type: 'string', description: 'HTTPS URL to fetch as screenshot' },
+        },
+        required: ['index'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'apply_camera_preset',
+      description: 'Apply a built-in camera view preset.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          preset_id: { type: 'string', enum: ['front', 'hero', 'dramatic', 'topdown'] },
+        },
+        required: ['preset_id'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'export_png',
+      description: 'Export the current scene as a PNG file download.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          width: { type: 'integer', description: 'Output width (default 3840 long edge via aspect preset)' },
+          transparent: { type: 'boolean' },
+          aspect_preset: { type: 'string', enum: ASPECT_PRESETS.map((p) => p.id) },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'export_png_preview',
+      description: 'Return a small base64 PNG preview (512px) of the current scene for visual verification.',
+      parameters: { type: 'object' as const, properties: {} },
+    },
+  },
 ]
 
 // ── SSE streaming ─────────────────────────────────────────────────────────────
@@ -322,6 +377,11 @@ async function* streamMessages(
 
 // ── Tool execution ────────────────────────────────────────────────────────────
 
+function deviceKindFromInput(v: unknown): 'phone' | 'mac' | 'ipad' | 'watch' {
+  if (v === 'mac' || v === 'ipad' || v === 'watch') return v
+  return 'phone'
+}
+
 function executeTool(name: string, input: Record<string, unknown>): string {
   const store = useStore.getState()
   const devices = store.devices
@@ -329,7 +389,7 @@ function executeTool(name: string, input: Record<string, unknown>): string {
   try {
     switch (name) {
       case 'add_device': {
-        const kind = input.kind === 'mac' ? 'mac' as const : 'phone' as const
+        const kind = deviceKindFromInput(input.kind)
         store.addDevice(kind)
         return `Added ${kind}. Scene now has ${devices.length + 1} device(s).`
       }
@@ -354,7 +414,7 @@ function executeTool(name: string, input: Record<string, unknown>): string {
       case 'set_device_type': {
         const idx = Number(input.index)
         if (idx < 0 || idx >= devices.length) return `Error: index ${idx} out of range`
-        const kind = input.kind === 'mac' ? 'mac' as const : 'phone' as const
+        const kind = deviceKindFromInput(input.kind)
         store.updateDevice(devices[idx].id, { deviceKind: kind })
         store.resetDeviceRotation(devices[idx].id)
         return `Device ${idx} → ${kind}`
@@ -422,6 +482,60 @@ function executeTool(name: string, input: Record<string, unknown>): string {
         }
         return applied.length > 0 ? `Lighting → ${applied.join(', ')}` : 'No lighting values provided'
       }
+      case 'set_device_screenshot': {
+        const idx = Number(input.index)
+        if (idx < 0 || idx >= devices.length) return `Error: index ${idx} out of range`
+        const apply = (dataUrl: string) => {
+          store.updateDevice(devices[idx].id, {
+            screenshot: dataUrl,
+            screenMediaKind: 'image',
+            screenLoadError: null,
+          })
+        }
+        if (typeof input.image_data_url === 'string' && input.image_data_url.startsWith('data:image/')) {
+          apply(input.image_data_url)
+          return `Screenshot set on device ${idx}`
+        }
+        if (typeof input.image_url === 'string') {
+          return `FETCH_PENDING|||${idx}|||${input.image_url}`
+        }
+        return `Error: provide image_data_url or image_url`
+      }
+      case 'apply_camera_preset': {
+        const preset = getBuiltinCameraPreset(String(input.preset_id))
+        if (!preset) return `Error: unknown preset ${input.preset_id}`
+        store.applyCameraPreset(preset.pose)
+        return `Camera preset → ${preset.name}`
+      }
+      case 'export_png': {
+        const capture = store.captureSceneAtSize
+        if (!capture) return 'Error: scene not ready for export'
+        const aspect = typeof input.aspect_preset === 'string' ? input.aspect_preset : store.aspectPreset
+        if (typeof input.aspect_preset === 'string') store.setAspectPreset(input.aspect_preset as typeof store.aspectPreset)
+        const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+        const viewW = canvas?.clientWidth ?? 800
+        const viewH = canvas?.clientHeight ?? 600
+        const preset = typeof input.width === 'number' ? input.width : 3840
+        const { w, h } = resolveExportDimensions(
+          aspect as typeof store.aspectPreset,
+          preset,
+          viewW,
+          viewH,
+        )
+        const transparent = Boolean(input.transparent)
+        const dataUrl = capture(w, h, transparent ? { transparent: true } : undefined)
+        const a = document.createElement('a')
+        a.href = dataUrl
+        a.download = `openmockup-${Date.now()}.png`
+        a.click()
+        return `Exported PNG ${w}×${h} — download started`
+      }
+      case 'export_png_preview': {
+        const capture = store.captureSceneAtSize
+        if (!capture) return 'Error: scene not ready'
+        const dataUrl = capture(512, 512)
+        return `Preview (512px): ${dataUrl.slice(0, 120)}… [truncated for chat — full image in tool result metadata]`
+      }
       default:
         return `Unknown tool: ${name}`
     }
@@ -447,7 +561,14 @@ function buildSystemPrompt(): string {
 
   const gradientList = GRADIENT_PRESETS.map((g) => `  ${g.label}: ${g.css}`).join('\n')
 
-  return `You are a creative AI director for OpenMockup Studio — a 3D device mockup tool. You compose beautiful iPhone and MacBook presentations by calling tools that control the live 3D scene.
+  return `You are a creative AI director for OpenMockup Studio — a 3D device mockup tool. You compose beautiful iPhone, iPad, Watch, and MacBook presentations by calling tools that control the live 3D scene.
+
+UPLOAD & EXPORT:
+- set_device_screenshot: put an image on a device (image_data_url or image_url)
+- export_png: download a high-res PNG of the current scene
+- export_png_preview: small preview for verification
+- apply_camera_preset: front | hero | dramatic | topdown
+Recommended flow: upload screenshot → apply_template → set_lighting → export_png
 
 CURRENT SCENE:
 ${deviceList}
@@ -618,7 +739,32 @@ export function AgentPanel() {
           },
         ])
 
-        const result = executeTool(tool.function.name, toolInput)
+        let result = executeTool(tool.function.name, toolInput)
+
+        if (result.startsWith('FETCH_PENDING|||')) {
+          const [, idxStr, url] = result.split('|||')
+          try {
+            const resp = await fetch(url)
+            const blob = await resp.blob()
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const r = new FileReader()
+              r.onload = () => resolve(r.result as string)
+              r.onerror = reject
+              r.readAsDataURL(blob)
+            })
+            const idx = Number(idxStr)
+            const devs = useStore.getState().devices
+            if (idx >= 0 && idx < devs.length) {
+              useStore.getState().updateDevice(devs[idx].id, {
+                screenshot: dataUrl,
+                screenMediaKind: 'image',
+              })
+            }
+            result = `Screenshot fetched and set on device ${idxStr}`
+          } catch {
+            result = `Error: failed to fetch ${url}`
+          }
+        }
 
         setUiMessages((prev) => [
           ...prev,
@@ -637,6 +783,24 @@ export function AgentPanel() {
 
       setApiMessages(messages)
     }
+  }
+
+  const attachRef = useRef<HTMLInputElement>(null)
+
+  async function handleAttachImage(file: File) {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () => resolve(r.result as string)
+      r.onerror = reject
+      r.readAsDataURL(file)
+    })
+    const idx = useStore.getState().devices.findIndex((d) => d.id === useStore.getState().activeDeviceId)
+    const deviceIndex = idx >= 0 ? idx : 0
+    useStore.getState().updateDevice(useStore.getState().devices[deviceIndex].id, {
+      screenshot: dataUrl,
+      screenMediaKind: 'image',
+    })
+    await send(`Attached screenshot to device ${deviceIndex}. Image is loaded — compose the scene and export when ready.`)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -839,6 +1003,33 @@ export function AgentPanel() {
             ;(e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,.11)'
           }}
         >
+          <input
+            ref={attachRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void handleAttachImage(f)
+              e.target.value = ''
+            }}
+          />
+          <button
+            type="button"
+            title="Attach screenshot"
+            onClick={() => attachRef.current?.click()}
+            disabled={loading}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'rgba(255,255,255,.5)',
+              cursor: 'pointer',
+              fontSize: 18,
+              padding: '0 4px',
+            }}
+          >
+            📎
+          </button>
           <textarea
             ref={textareaRef}
             value={input}

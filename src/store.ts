@@ -20,7 +20,10 @@ function wrapSignedPi(radians: number): number {
   return wrapCameraRoll(radians)
 }
 
-export type DeviceKind = 'phone' | 'mac'
+import type { CameraPose } from './cameraPresets'
+import type { CameraKeyframe, CameraMotionPresetId } from './cameraMotionPresets'
+
+export type DeviceKind = 'phone' | 'mac' | 'ipad' | 'watch'
 
 export type ScreenMediaKind = 'image' | 'video'
 
@@ -35,8 +38,12 @@ export const LIGHTING_DEFAULTS = {
 export type DeviceInstance = {
   id: string
   screenshot: string | null
-  /** When `screenshot` is set: image data URL or video blob URL. */
+  /** When `screenshot` is set: image data URL, video blob URL, or resolved HTTPS URL. */
   screenMediaKind: ScreenMediaKind | null
+  /** Supabase Storage path for persisted video (not expiring signed URLs). */
+  screenMediaStoragePath?: string | null
+  /** True while a video upload to Storage is in progress. */
+  videoUploadInFlight?: boolean
   screenLoadError: string | null
   /** Loop / playback start offset in seconds (video only). */
   videoStartTime: number
@@ -88,6 +95,12 @@ type State = {
   environmentIntensity: number
   ambientIntensity: number
   keyLightIntensity: number
+  mediaUploadInFlight: boolean
+  cameraMotion: null | { presetId: CameraMotionPresetId; durationSec: number; loop: boolean }
+  cameraKeyframes: CameraKeyframe[]
+  animationPlayback: 'idle' | 'playing' | 'exporting'
+  animationTime: number
+  motionStartPose: CameraPose | null
   hydrationSeq: number
   captureSceneAtSize: null | ((width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => string)
   captureSceneToCanvas: null | ((width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => HTMLCanvasElement)
@@ -119,6 +132,12 @@ type State = {
   setAmbientIntensity: (v: number) => void
   setKeyLightIntensity: (v: number) => void
   resetLighting: () => void
+  setMediaUploadInFlight: (v: boolean) => void
+  setCameraMotion: (m: State['cameraMotion']) => void
+  setCameraKeyframes: (k: CameraKeyframe[]) => void
+  setAnimationPlayback: (p: State['animationPlayback']) => void
+  setAnimationTime: (t: number) => void
+  setMotionStartPose: (p: CameraPose | null) => void
   applyCameraPreset: (pose: {
     cameraPosition: [number, number, number]
     cameraTarget: [number, number, number]
@@ -178,6 +197,12 @@ export const useStore = create<State>((set) => ({
   environmentIntensity: LIGHTING_DEFAULTS.environmentIntensity,
   ambientIntensity: LIGHTING_DEFAULTS.ambientIntensity,
   keyLightIntensity: LIGHTING_DEFAULTS.keyLightIntensity,
+  mediaUploadInFlight: false,
+  cameraMotion: { presetId: 'hero_sweep', durationSec: 6, loop: false },
+  cameraKeyframes: [],
+  animationPlayback: 'idle',
+  animationTime: 0,
+  motionStartPose: null,
   hydrationSeq: 0,
   captureSceneAtSize: null,
   captureSceneToCanvas: null,
@@ -270,6 +295,12 @@ export const useStore = create<State>((set) => ({
   setAmbientIntensity: (v) => set({ ambientIntensity: Math.max(0, Math.min(1, v)) }),
   setKeyLightIntensity: (v) => set({ keyLightIntensity: Math.max(0, Math.min(2, v)) }),
   resetLighting: () => set({ ...LIGHTING_DEFAULTS }),
+  setMediaUploadInFlight: (v) => set({ mediaUploadInFlight: v }),
+  setCameraMotion: (m) => set({ cameraMotion: m }),
+  setCameraKeyframes: (k) => set({ cameraKeyframes: k }),
+  setAnimationPlayback: (p) => set({ animationPlayback: p }),
+  setAnimationTime: (t) => set({ animationTime: t }),
+  setMotionStartPose: (p) => set({ motionStartPose: p }),
 
   applyCameraPreset: (pose) =>
     set((s) => ({
@@ -328,6 +359,8 @@ export const useStore = create<State>((set) => ({
           positionZ: d.positionZ ?? 0,
           positionY: d.positionY ?? 0,
           deviceScale: clampDeviceScale(d.deviceScale ?? 1),
+          screenMediaStoragePath: d.screenMediaStoragePath ?? null,
+          videoUploadInFlight: false,
           deviceRotation: [
             wrapSignedPi(d.deviceRotation[0]),
             wrapSignedPi(d.deviceRotation[1]),

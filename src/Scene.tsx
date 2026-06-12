@@ -3,13 +3,21 @@ import { OrbitControls, Environment, ContactShadows, useProgress } from '@react-
 import { Suspense } from 'react'
 import { MacBookFromGltf } from './MacBookFromGltf'
 import { PhoneFromGltf } from './PhoneFromGltf'
-import { useStore, type DeviceInstance } from './store'
+import { IpadFromGltf } from './IpadFromGltf'
+import { WatchFromGltf } from './WatchFromGltf'
+import { useStore, type DeviceInstance, type DeviceKind } from './store'
 import { captureSceneToPngDataUrl, captureSceneToCanvas } from './highResCapture'
 import { isGradientBg } from './gradients'
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { MOUSE, TOUCH } from 'three'
 import * as THREE from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
+import {
+  evaluateCameraKeyframes,
+  evaluateCameraMotion,
+  getCameraMotionPreset,
+} from './cameraMotionPresets'
+import type { CameraPose } from './cameraPresets'
 
 const DEVICE_DRAG_SENS = 0.007
 const DEVICE_AUTO_ROTATE_SPEED = 1.2
@@ -31,6 +39,45 @@ const MOUSE_DEVICE_VIEW_MODE = {
 } as { LEFT: number; MIDDLE: MOUSE; RIGHT: MOUSE }
 
 const TOUCH_DEVICE_VIEW_MODE = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_PAN } as const
+
+function DeviceModel({
+  device,
+}: {
+  device: DeviceInstance
+}) {
+  const props = {
+    deviceId: device.id,
+    screenshot: device.screenshot,
+    screenMediaKind: device.screenMediaKind,
+    deviceColor: device.deviceColor,
+  }
+  switch (device.deviceKind) {
+    case 'mac':
+      return (
+        <Suspense fallback={null}>
+          <MacBookFromGltf {...props} />
+        </Suspense>
+      )
+    case 'ipad':
+      return (
+        <Suspense fallback={null}>
+          <IpadFromGltf {...props} />
+        </Suspense>
+      )
+    case 'watch':
+      return (
+        <Suspense fallback={null}>
+          <WatchFromGltf {...props} />
+        </Suspense>
+      )
+    default:
+      return (
+        <Suspense fallback={null}>
+          <PhoneFromGltf {...props} />
+        </Suspense>
+      )
+  }
+}
 
 function DeviceGroup({
   device,
@@ -63,25 +110,7 @@ function DeviceGroup({
       scale={[device.deviceScale, device.deviceScale, device.deviceScale]}
       onPointerDown={interactive ? (e) => onPointerDown(e, device.id) : undefined}
     >
-      {device.deviceKind === 'phone' ? (
-        <Suspense fallback={null}>
-          <PhoneFromGltf
-            deviceId={device.id}
-            screenshot={device.screenshot}
-            screenMediaKind={device.screenMediaKind}
-            deviceColor={device.deviceColor}
-          />
-        </Suspense>
-      ) : (
-        <Suspense fallback={null}>
-          <MacBookFromGltf
-            deviceId={device.id}
-            screenshot={device.screenshot}
-            screenMediaKind={device.screenMediaKind}
-            deviceColor={device.deviceColor}
-          />
-        </Suspense>
-      )}
+      <DeviceModel device={device} />
     </group>
   )
 }
@@ -453,6 +482,86 @@ function CameraWasdMovement({
   return null
 }
 
+function CameraMotionPlayback({
+  controlsRef,
+}: {
+  controlsRef: React.RefObject<OrbitControlsImpl | null>
+}) {
+  const animationPlayback = useStore((s) => s.animationPlayback)
+  const cameraMotion = useStore((s) => s.cameraMotion)
+  const cameraKeyframes = useStore((s) => s.cameraKeyframes)
+  const motionStartPose = useStore((s) => s.motionStartPose)
+  const startTimeRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (animationPlayback === 'playing' || animationPlayback === 'exporting') {
+      startTimeRef.current = performance.now()
+      if (!motionStartPose) {
+        const s = useStore.getState()
+        useStore.getState().setMotionStartPose({
+          cameraPosition: [...s.cameraPosition] as [number, number, number],
+          cameraTarget: [...s.cameraTarget] as [number, number, number],
+          orbitDistance: s.orbitDistance,
+          cameraRoll: s.cameraRoll,
+        })
+      }
+    } else {
+      startTimeRef.current = null
+    }
+  }, [animationPlayback, motionStartPose])
+
+  useFrame((_state, delta) => {
+    if (animationPlayback === 'idle' || !cameraMotion) return
+    const startPose =
+      motionStartPose ?? {
+        cameraPosition: [0, 0, 28] as [number, number, number],
+        cameraTarget: [0, 0, 0] as [number, number, number],
+        orbitDistance: 28,
+        cameraRoll: 0,
+      }
+    const duration = cameraMotion.durationSec
+    let t: number
+    if (animationPlayback === 'exporting') {
+      t = useStore.getState().animationTime / duration
+    } else {
+      if (startTimeRef.current == null) startTimeRef.current = performance.now()
+      const elapsed = (performance.now() - startTimeRef.current) / 1000
+      t = cameraMotion.loop ? (elapsed % duration) / duration : Math.min(1, elapsed / duration)
+      useStore.getState().setAnimationTime(elapsed % duration)
+      if (!cameraMotion.loop && elapsed >= duration) {
+        useStore.getState().setAnimationPlayback('idle')
+        return
+      }
+    }
+
+    const preset = getCameraMotionPreset(cameraMotion.presetId)
+    let pose: CameraPose
+    if (cameraKeyframes.length >= 2) {
+      pose = evaluateCameraKeyframes(cameraKeyframes, t * duration)
+    } else if (preset?.animatesCamera) {
+      pose = evaluateCameraMotion(cameraMotion.presetId, t, startPose)
+    } else {
+      pose = startPose
+    }
+
+    useStore.getState().applyCameraPreset(pose)
+
+    if (preset?.id === 'device_turntable' || cameraMotion.presetId === 'device_turntable') {
+      useStore.getState().tickAutoRotate((Math.PI * 2 * delta) / duration)
+    }
+
+    const ctl = controlsRef.current
+    if (ctl) {
+      const cam = ctl.object as THREE.PerspectiveCamera
+      cam.position.set(...pose.cameraPosition)
+      ctl.target.set(...pose.cameraTarget)
+      ctl.update()
+    }
+  })
+
+  return null
+}
+
 function OrbitWithRoll({ controlsRef }: { controlsRef: React.RefObject<OrbitControlsImpl | null> }) {
   const cameraRoll = useStore((s) => s.cameraRoll)
   const cameraPanFree = useStore((s) => s.cameraPanFree)
@@ -528,6 +637,8 @@ function OrbitWithRoll({ controlsRef }: { controlsRef: React.RefObject<OrbitCont
 
   useFrame(() => {
     const ctl = controlsRef.current
+    const playback = useStore.getState().animationPlayback
+    if (playback !== 'idle') return
     if (ctl) {
       const d = ctl.getDistance()
       const stepped = Math.round(d * 10) / 10
@@ -630,7 +741,7 @@ function SceneCaptureRegistration() {
   return null
 }
 
-function SceneContactShadows({ deviceKind }: { deviceKind: 'phone' | 'mac' }) {
+function SceneContactShadows({ deviceKind }: { deviceKind: DeviceKind }) {
   const groupRef = useRef<THREE.Group>(null)
   useLayoutEffect(() => {
     const g = groupRef.current
@@ -641,12 +752,13 @@ function SceneContactShadows({ deviceKind }: { deviceKind: 'phone' | 'mac' }) {
       }
     })
   }, [deviceKind])
+  const scale = deviceKind === 'mac' ? 34 : deviceKind === 'ipad' ? 28 : deviceKind === 'watch' ? 12 : 22
   return (
     <ContactShadows
       ref={groupRef}
       position={[0, -9, 0]}
       opacity={0.55}
-      scale={deviceKind === 'mac' ? 34 : 22}
+      scale={scale}
       blur={2.8}
       far={12}
     />
@@ -716,6 +828,7 @@ function SceneWorld({ onReady }: { onReady?: () => void }) {
       <SceneContactShadows deviceKind={activeDevice?.deviceKind ?? 'phone'} />
       <Environment preset="studio" environmentIntensity={environmentIntensity} />
       <OrbitWithRoll controlsRef={orbitControlsRef} />
+      <CameraMotionPlayback controlsRef={orbitControlsRef} />
       <CameraLookDrag controlsRef={orbitControlsRef} />
       <CameraWasdMovement controlsRef={orbitControlsRef} />
     </>

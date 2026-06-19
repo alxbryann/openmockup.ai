@@ -1,7 +1,10 @@
 import { useCallback, useRef, useState } from 'react'
-import { SCENE_TEMPLATES } from './sceneTemplates'
+import { listAllSceneTemplates } from './sceneTemplates'
+import { PLATFORM_EXPORT_PRESETS } from './platformExportPresets'
 import { ASPECT_PRESETS } from './aspectPresets'
 import { downloadBatchZip, runBatchExport, type BatchItem } from './batchExport'
+import { canUseServerBatch, runServerBatchExport } from './batchServerExport'
+import { useAuth } from './useAuth'
 import type { AspectPreset } from './store'
 
 type Props = {
@@ -9,27 +12,36 @@ type Props = {
 }
 
 export function BatchExportPanel({ onClose }: Props) {
+  const { user } = useAuth()
+  const templates = listAllSceneTemplates()
   const [items, setItems] = useState<BatchItem[]>([])
-  const [templateId, setTemplateId] = useState(SCENE_TEMPLATES[0]?.id ?? '')
+  const [templateId, setTemplateId] = useState(templates[0]?.id ?? '')
   const [aspectPreset, setAspectPreset] = useState<AspectPreset>('1:1')
   const [exportPreset, setExportPreset] = useState<'screen' | 1920 | 3840>(1920)
   const [transparent, setTransparent] = useState(false)
+  const [useServer, setUseServer] = useState(Boolean(user))
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0, name: '' })
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const onFiles = useCallback((files: FileList | null) => {
-    if (!files?.length) return
-    const next: BatchItem[] = []
-    for (const f of Array.from(files)) {
-      if (!f.type.startsWith('image/')) continue
-      next.push({ name: f.name, file: f })
-    }
-    setItems((prev) => [...prev, ...next].slice(0, 30))
-    setError(null)
-  }, [])
+  const serverAvailable = canUseServerBatch() && Boolean(user)
+  const maxItems = useServer && serverAvailable ? 20 : 30
+
+  const onFiles = useCallback(
+    (files: FileList | null) => {
+      if (!files?.length) return
+      const next: BatchItem[] = []
+      for (const f of Array.from(files)) {
+        if (!f.type.startsWith('image/')) continue
+        next.push({ name: f.name, file: f })
+      }
+      setItems((prev) => [...prev, ...next].slice(0, maxItems))
+      setError(null)
+    },
+    [maxItems],
+  )
 
   async function startExport() {
     if (items.length === 0) {
@@ -40,15 +52,29 @@ export function BatchExportPanel({ onClose }: Props) {
     setError(null)
     abortRef.current = new AbortController()
     try {
-      const blob = await runBatchExport({
-        items,
-        templateId: templateId || undefined,
-        aspectPreset,
-        exportPreset,
-        transparent,
-        signal: abortRef.current.signal,
-        onProgress: (done, total, name) => setProgress({ done, total, name }),
-      })
+      const onProgress = (done: number, total: number, name: string) =>
+        setProgress({ done, total, name })
+
+      const blob =
+        useServer && serverAvailable
+          ? await runServerBatchExport({
+              items,
+              templateId: templateId || undefined,
+              aspectPreset,
+              exportPreset,
+              transparent,
+              signal: abortRef.current.signal,
+              onProgress,
+            })
+          : await runBatchExport({
+              items,
+              templateId: templateId || undefined,
+              aspectPreset,
+              exportPreset,
+              transparent,
+              signal: abortRef.current.signal,
+              onProgress,
+            })
       downloadBatchZip(blob)
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
@@ -104,8 +130,44 @@ export function BatchExportPanel({ onClose }: Props) {
         </div>
 
         <p style={{ fontSize: 13, color: 'var(--fg-2)', margin: '0 0 16px' }}>
-          Apply one template to many screenshots and download a ZIP (max 30 PNGs).
+          Apply one template to many screenshots and download a ZIP (max {maxItems} PNGs).
         </p>
+
+        {serverAvailable && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            {(
+              [
+                { id: false, label: 'Local (browser)' },
+                { id: true, label: 'Server (cloud)' },
+              ] as const
+            ).map(({ id, label }) => (
+              <button
+                key={String(id)}
+                type="button"
+                onClick={() => setUseServer(id)}
+                style={{
+                  flex: 1,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: `1px solid ${useServer === id ? 'var(--accent)' : 'var(--border)'}`,
+                  background: useServer === id ? 'rgba(110,75,255,.12)' : 'var(--surface-2)',
+                  color: 'var(--fg)',
+                  fontWeight: useServer === id ? 600 : 400,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {useServer && serverAvailable && (
+          <p style={{ fontSize: 11, color: 'var(--accent)', margin: '0 0 14px' }}>
+            Renders on Vercel with Playwright — ideal for 4K batches without freezing the browser.
+          </p>
+        )}
 
         <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Template</label>
         <select
@@ -113,8 +175,27 @@ export function BatchExportPanel({ onClose }: Props) {
           onChange={(e) => setTemplateId(e.target.value)}
           style={{ width: '100%', marginBottom: 14, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--fg)' }}
         >
-          {SCENE_TEMPLATES.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}{t.id.startsWith('user-') ? ' ★' : ''}
+            </option>
+          ))}
+        </select>
+
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Platform preset</label>
+        <select
+          defaultValue=""
+          onChange={(e) => {
+            const p = PLATFORM_EXPORT_PRESETS.find((x) => x.id === e.target.value)
+            if (!p) return
+            setAspectPreset(p.aspectPreset)
+            setExportPreset(p.exportLongEdge)
+          }}
+          style={{ width: '100%', marginBottom: 14, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--fg)' }}
+        >
+          <option value="">— Custom —</option>
+          {PLATFORM_EXPORT_PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>{p.label}</option>
           ))}
         </select>
 
@@ -140,7 +221,7 @@ export function BatchExportPanel({ onClose }: Props) {
         >
           <option value={1920}>1080p long edge</option>
           <option value={3840}>4K long edge</option>
-          <option value="screen">Screen size</option>
+          <option value="screen">Native preset size</option>
         </select>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 14 }}>
@@ -163,7 +244,7 @@ export function BatchExportPanel({ onClose }: Props) {
         >
           <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => onFiles(e.target.files)} />
           <div style={{ fontSize: 13, color: 'var(--fg-2)' }}>Drop screenshots or click to add</div>
-          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>{items.length} file(s)</div>
+          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>{items.length} / {maxItems} file(s)</div>
         </div>
 
         {items.length > 0 && (

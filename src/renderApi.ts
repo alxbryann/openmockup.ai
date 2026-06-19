@@ -31,6 +31,9 @@ export type RenderMockupOpts = {
   camera_offset_y?: number
   camera_roll?: number
   camera_preset?: BuiltinCameraPresetId
+  cameraPosition?: [number, number, number]
+  cameraTarget?: [number, number, number]
+  orbitDistance?: number
   transparent?: boolean
   aspectPreset?: AspectPreset
   environmentIntensity?: number
@@ -103,6 +106,10 @@ export function applySceneConfig(opts: RenderMockupOpts): void {
     if (camPreset) store.applyCameraPreset(camPreset.pose)
   }
   if (typeof opts.camera_roll === 'number') store.setCameraRoll(opts.camera_roll)
+  if (opts.cameraPosition && opts.cameraTarget) {
+    store.setCameraPose(opts.cameraPosition, opts.cameraTarget)
+    if (typeof opts.orbitDistance === 'number') store.setOrbitDistance(opts.orbitDistance)
+  }
   if (opts.aspectPreset) store.setAspectPreset(opts.aspectPreset)
   if (typeof opts.environmentIntensity === 'number') store.setEnvironmentIntensity(opts.environmentIntensity)
   if (typeof opts.ambientIntensity === 'number') store.setAmbientIntensity(opts.ambientIntensity)
@@ -196,7 +203,7 @@ export async function renderMockupInternal(opts: RenderMockupOpts): Promise<Rend
   const ox = opts.camera_offset_x ?? 0
   const oy = opts.camera_offset_y ?? 0
 
-  if (opts.camera_preset || typeof opts.camera_roll === 'number') {
+  if (opts.camera_preset || typeof opts.camera_roll === 'number' || opts.cameraPosition) {
     const s = useStore.getState()
     const [px, py, pz] = s.cameraPosition
     const [tx, ty, tz] = s.cameraTarget

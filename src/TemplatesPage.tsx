@@ -1,4 +1,5 @@
-import { SCENE_TEMPLATES } from './sceneTemplates'
+import { listAllSceneTemplates } from './sceneTemplates'
+import { getCachedThumbnail, isImageThumbnail, templatePreviewStyle } from './templateThumbnails'
 
 const Logo = () => (
   <a href="/" style={{ display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none' }}>
@@ -38,7 +39,87 @@ const nav: React.CSSProperties = {
   zIndex: 10,
 }
 
+function TemplateGalleryCard({ template }: { template: ReturnType<typeof listAllSceneTemplates>[number] }) {
+  const cached = getCachedThumbnail(template.id)
+  const thumb =
+    isImageThumbnail(template.thumbnail) ? template.thumbnail : cached ?? template.thumbnail
+
+  return (
+    <a
+      href={`?studio&template=${template.id}`}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        borderRadius: 16,
+        overflow: 'hidden',
+        textDecoration: 'none',
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border)',
+        transition: 'transform .15s ease, border-color .15s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'translateY(-3px)'
+        e.currentTarget.style.borderColor = 'var(--accent)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = ''
+        e.currentTarget.style.borderColor = 'var(--border)'
+      }}
+    >
+      <span aria-hidden style={{ display: 'block', height: 130, ...templatePreviewStyle(thumb) }} />
+      <span style={{ padding: '14px 16px 16px' }}>
+        <span
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 6,
+          }}
+        >
+          <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.01em', color: 'var(--fg)' }}>
+            {template.name}
+            {template.id.startsWith('user-') ? ' ★' : ''}
+          </span>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              color: 'var(--fg-3)',
+              border: '1px solid var(--border)',
+              borderRadius: 999,
+              padding: '3px 8px',
+            }}
+          >
+            {template.category}
+          </span>
+        </span>
+        <span style={{ display: 'block', fontSize: 13, lineHeight: 1.5, color: 'var(--fg-2)' }}>
+          {template.description}
+        </span>
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            marginTop: 12,
+            fontSize: 13,
+            fontWeight: 600,
+            color: 'var(--accent)',
+          }}
+        >
+          Usar en studio →
+        </span>
+      </span>
+    </a>
+  )
+}
+
 export default function TemplatesPage() {
+  const templates = listAllSceneTemplates()
+
   return (
     <>
       <nav style={nav}>
@@ -82,76 +163,8 @@ export default function TemplatesPage() {
             gap: 20,
           }}
         >
-          {SCENE_TEMPLATES.map((t) => (
-            <a
-              key={t.id}
-              href={`?studio&template=${t.id}`}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                borderRadius: 16,
-                overflow: 'hidden',
-                textDecoration: 'none',
-                background: 'var(--surface-2)',
-                border: '1px solid var(--border)',
-                transition: 'transform .15s ease, border-color .15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-3px)'
-                e.currentTarget.style.borderColor = 'var(--accent)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = ''
-                e.currentTarget.style.borderColor = 'var(--border)'
-              }}
-            >
-              <span aria-hidden style={{ display: 'block', height: 130, background: t.thumbnail }} />
-              <span style={{ padding: '14px 16px 16px' }}>
-                <span
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                    marginBottom: 6,
-                  }}
-                >
-                  <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.01em', color: 'var(--fg)' }}>
-                    {t.name}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 600,
-                      letterSpacing: '0.04em',
-                      textTransform: 'uppercase',
-                      color: 'var(--fg-3)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 999,
-                      padding: '3px 8px',
-                    }}
-                  >
-                    {t.category}
-                  </span>
-                </span>
-                <span style={{ display: 'block', fontSize: 13, lineHeight: 1.5, color: 'var(--fg-2)' }}>
-                  {t.description}
-                </span>
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    marginTop: 12,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: 'var(--accent)',
-                  }}
-                >
-                  Usar en studio →
-                </span>
-              </span>
-            </a>
+          {templates.map((t) => (
+            <TemplateGalleryCard key={t.id} template={t} />
           ))}
         </div>
       </div>

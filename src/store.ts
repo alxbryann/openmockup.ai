@@ -160,6 +160,8 @@ type State = {
     environmentIntensity?: number
     ambientIntensity?: number
     keyLightIntensity?: number
+    cameraMotion?: null | { presetId: CameraMotionPresetId; durationSec: number; loop: boolean }
+    cameraKeyframes?: CameraKeyframe[]
   }) => void
 }
 
@@ -381,6 +383,19 @@ export const useStore = create<State>((set) => ({
         environmentIntensity: snap.environmentIntensity ?? LIGHTING_DEFAULTS.environmentIntensity,
         ambientIntensity: snap.ambientIntensity ?? LIGHTING_DEFAULTS.ambientIntensity,
         keyLightIntensity: snap.keyLightIntensity ?? LIGHTING_DEFAULTS.keyLightIntensity,
+        cameraMotion: snap.cameraMotion ?? { presetId: 'hero_sweep', durationSec: 6, loop: false },
+        cameraKeyframes: snap.cameraKeyframes?.map((k) => ({
+          time: k.time,
+          pose: {
+            cameraPosition: [...k.pose.cameraPosition] as [number, number, number],
+            cameraTarget: [...k.pose.cameraTarget] as [number, number, number],
+            orbitDistance: k.pose.orbitDistance,
+            cameraRoll: k.pose.cameraRoll,
+          },
+        })) ?? [],
+        animationPlayback: 'idle',
+        animationTime: 0,
+        motionStartPose: null,
         hydrationSeq: s.hydrationSeq + 1,
       }
     }),

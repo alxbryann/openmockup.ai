@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { exportPixelSize } from './highResCapture'
 import { CHROMA_KEY_GREEN } from './highResVideoExport'
 import { ASPECT_PRESETS, aspectRatioOf, resolveExportDimensions } from './aspectPresets'
+import { PLATFORM_EXPORT_PRESETS } from './platformExportPresets'
 import {
   BUILTIN_CAMERA_PRESETS,
   deleteUserCameraPreset,
@@ -15,6 +16,14 @@ import {
   getSceneTemplate,
   type SceneTemplate,
 } from './sceneTemplates'
+import {
+  captureSceneAsTemplate,
+  deleteUserTemplate,
+  listUserTemplates,
+  saveUserTemplate,
+} from './userTemplates'
+import { warmBuiltinTemplateThumbnails } from './templateThumbnails'
+import { TemplateCard } from './TemplateCard'
 import { useAuth, SUPABASE_ENABLED } from './useAuth'
 import { supabase } from './supabase'
 import {
@@ -149,6 +158,11 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const resetLighting = useStore((s) => s.resetLighting)
   const applyCameraPreset = useStore((s) => s.applyCameraPreset)
   const applySceneSnapshot = useStore((s) => s.applySceneSnapshot)
+  const cameraMotion = useStore((s) => s.cameraMotion)
+  const cameraKeyframes = useStore((s) => s.cameraKeyframes)
+
+  const [userTemplates, setUserTemplates] = useState<SceneTemplate[]>(() => listUserTemplates())
+  const allTemplates = [...SCENE_TEMPLATES, ...userTemplates]
 
   const [userCameraPresets, setUserCameraPresets] = useState<CameraPreset[]>(() => listUserCameraPresets())
 
@@ -177,6 +191,19 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     },
     [applySceneSnapshot],
   )
+
+  const handleSaveAsTemplate = useCallback(async () => {
+    const name = window.prompt('Nombre del template')
+    if (!name?.trim()) return
+    const thumbnail = await captureProjectThumbnail(useStore.getState().bgColor, useStore.getState().viewportInsetRight)
+    const template = captureSceneAsTemplate(name, thumbnail ?? useStore.getState().bgColor)
+    setUserTemplates(saveUserTemplate(template))
+  }, [])
+
+  const handleDeleteUserTemplate = useCallback((id: string) => {
+    if (!window.confirm('¿Eliminar este template personalizado?')) return
+    setUserTemplates(deleteUserTemplate(id))
+  }, [])
 
   const { user } = useAuth()
   const mediaUploadInFlight = useStore((s) => s.mediaUploadInFlight)
@@ -388,6 +415,8 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         environmentIntensity: s.environmentIntensity,
         ambientIntensity: s.ambientIntensity,
         keyLightIntensity: s.keyLightIntensity,
+        cameraMotion: s.cameraMotion,
+        cameraKeyframes: s.cameraKeyframes,
       })
       const thumbnail = await captureProjectThumbnail(s.bgColor, s.viewportInsetRight)
       // Capturing the thumbnail is async; re-check before persisting in case the
@@ -411,7 +440,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     if (autosaveMaxWaitRef.current == null) {
       autosaveMaxWaitRef.current = window.setTimeout(commitSave, 2500)
     }
-  }, [activeProject, devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight, aspectPreset, environmentIntensity, ambientIntensity, keyLightIntensity, mediaUploadInFlight])
+  }, [activeProject, devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight, aspectPreset, environmentIntensity, ambientIntensity, keyLightIntensity, cameraMotion, cameraKeyframes, mediaUploadInFlight])
 
   // Cancel any pending autosave for the previous project when the active
   // project changes (or when the studio unmounts). Without this, the 2.5 s
@@ -502,6 +531,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const [isDraggingOver, setIsDraggingOver] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportPreset, setExportPreset] = useState<ExportPreset>(3840)
+  const [platformPresetId, setPlatformPresetId] = useState<string | null>(null)
   const [pngBgMode, setPngBgMode] = useState<PngBgMode>('solid')
   const [exportError, setExportError] = useState<string | null>(null)
   const [studioReady, setStudioReady] = useState(false)
@@ -525,7 +555,10 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const handleSceneReady = useCallback(() => {
     const elapsed = Date.now() - mountTimeRef.current
     const delay = Math.max(0, 350 - elapsed)
-    setTimeout(() => setStudioReady(true), delay)
+    setTimeout(() => {
+      setStudioReady(true)
+      warmBuiltinTemplateThumbnails(SCENE_TEMPLATES)
+    }, delay)
   }, [])
 
   useEffect(() => {
@@ -1090,7 +1123,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
               id="templates"
               title="Templates"
               icon={<TemplateGlyph className="h-3.5 w-3.5 shrink-0" />}
-              hint={`${SCENE_TEMPLATES.length} escenas`}
+              hint={`${allTemplates.length} escenas`}
               open={openSections.templates}
               onToggle={() => toggleSection('templates')}
             >
@@ -1100,29 +1133,27 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
               >
                 Aplica una escena base. Tus capturas se conservan.
               </p>
+              <button
+                type="button"
+                onClick={() => void handleSaveAsTemplate()}
+                className="mb-2 w-full cursor-pointer rounded-lg border-0 py-2"
+                style={{
+                  background: 'rgba(255,255,255,.08)',
+                  color: 'rgba(255,255,255,.85)',
+                  font: '600 11px/1 var(--font-sans)',
+                  border: '1px solid rgba(255,255,255,.12)',
+                }}
+              >
+                Guardar escena actual ★
+              </button>
               <div className="grid grid-cols-2 gap-2">
-                {SCENE_TEMPLATES.map((t) => (
-                  <button
+                {allTemplates.map((t) => (
+                  <TemplateCard
                     key={t.id}
-                    type="button"
+                    template={t}
                     onClick={() => applyTemplate(t)}
-                    title={t.description}
-                    className="group flex cursor-pointer flex-col overflow-hidden rounded-xl border-0 p-0 text-left transition"
-                    style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.1)' }}
-                  >
-                    <span
-                      aria-hidden
-                      style={{ display: 'block', height: 44, background: t.thumbnail }}
-                    />
-                    <span
-                      className="px-2 py-1.5"
-                      style={{ font: '600 11px/1.2 var(--font-sans)', color: 'rgba(255,255,255,.85)' }}
-                    >
-                      {t.name}
-                    </span>
-                  </button>
+                    onDelete={t.id.startsWith('user-') ? () => handleDeleteUserTemplate(t.id) : undefined}
+                  />
                 ))}
               </div>
             </Section>
@@ -1778,6 +1809,36 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                 </p>
               )}
 
+              <SubLabel>Plataforma</SubLabel>
+              <div className="mb-1 flex flex-wrap gap-1.5">
+                {PLATFORM_EXPORT_PRESETS.map(({ id, label }) => (
+                  <Pill
+                    key={id}
+                    active={platformPresetId === id}
+                    onClick={() => {
+                      const p = PLATFORM_EXPORT_PRESETS.find((x) => x.id === id)
+                      if (!p) return
+                      setPlatformPresetId(id)
+                      setAspectPreset(p.aspectPreset)
+                      if (p.exportLongEdge === 'screen') setExportPreset('screen')
+                      else setExportPreset(p.exportLongEdge)
+                      setExportError(null)
+                    }}
+                    className="px-2 py-1.5"
+                  >
+                    {label}
+                  </Pill>
+                ))}
+              </div>
+              <p
+                className="mb-3 leading-snug"
+                style={{ font: '400 11px/1.45 var(--font-sans)', color: 'rgba(255,255,255,.4)' }}
+              >
+                {platformPresetId
+                  ? PLATFORM_EXPORT_PRESETS.find((p) => p.id === platformPresetId)?.hint
+                  : 'Atajo para App Store, Instagram, X, OG…'}
+              </p>
+
               <SubLabel>Formato (aspect ratio)</SubLabel>
               <div className="mb-1 flex flex-wrap gap-1.5">
                 {ASPECT_PRESETS.map(({ id, label }) => (
@@ -1786,6 +1847,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                     active={aspectPreset === id}
                     onClick={() => {
                       setAspectPreset(id)
+                      setPlatformPresetId(null)
                       setExportError(null)
                     }}
                     className="px-2.5 py-1.5"
@@ -1809,6 +1871,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                     active={exportPreset === id}
                     onClick={() => {
                       setExportPreset(id)
+                      setPlatformPresetId(null)
                       setExportError(null)
                     }}
                     className="justify-center py-2"

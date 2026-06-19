@@ -1,6 +1,8 @@
+import { getAspectPreset } from './aspectPresets'
 import type { AspectPreset, DeviceInstance, DeviceKind, SceneSnapshotPatch } from './store'
 import { LIGHTING_DEFAULTS } from './store'
 import type { CameraPose } from './cameraPresets'
+import { getUserTemplate, listUserTemplates } from './userTemplates'
 
 const DEG = Math.PI / 180
 
@@ -219,7 +221,66 @@ export const SCENE_TEMPLATES: SceneTemplate[] = [
 ]
 
 export function getSceneTemplate(id: string): SceneTemplate | undefined {
-  return SCENE_TEMPLATES.find((t) => t.id === id)
+  return SCENE_TEMPLATES.find((t) => t.id === id) ?? getUserTemplate(id)
+}
+
+export function listAllSceneTemplates(): SceneTemplate[] {
+  return [...SCENE_TEMPLATES, ...listUserTemplates()]
+}
+
+/** Scene config for server-side / headless renderMockup(). */
+export function templateToRenderScene(
+  t: SceneTemplate,
+  opts?: {
+    aspectPreset?: AspectPreset
+    exportPreset?: 'screen' | 1920 | 3840
+    transparent?: boolean
+  },
+): Record<string, unknown> {
+  const aspect = opts?.aspectPreset ?? t.aspectPreset
+  const preset = aspect !== 'free' ? getAspectPreset(aspect) : null
+  const longEdge = opts?.exportPreset ?? 1920
+
+  let width: number | undefined
+  let height: number | undefined
+  if (opts?.exportPreset === 'screen' && preset) {
+    width = preset.exportW
+    height = preset.exportH
+  } else if (preset?.ratio) {
+    const ratio = preset.ratio
+    if (ratio >= 1) {
+      width = longEdge === 'screen' ? preset.exportW : longEdge
+      height = Math.max(1, Math.round(width / ratio))
+    } else {
+      height = longEdge === 'screen' ? preset.exportH : longEdge
+      width = Math.max(1, Math.round(height * ratio))
+    }
+  }
+
+  return {
+    bgColor: t.bgColor,
+    aspectPreset: aspect,
+    transparent: opts?.transparent,
+    width,
+    height,
+    environmentIntensity: t.lighting.environmentIntensity,
+    ambientIntensity: t.lighting.ambientIntensity,
+    keyLightIntensity: t.lighting.keyLightIntensity,
+    cameraPosition: t.camera.cameraPosition,
+    cameraTarget: t.camera.cameraTarget,
+    orbitDistance: t.camera.orbitDistance,
+    camera_roll: t.camera.cameraRoll,
+    devices: t.devices.map((d) => ({
+      kind: d.deviceKind,
+      imageDataUrl: '',
+      deviceColor: d.deviceColor,
+      deviceRotation: d.deviceRotation,
+      positionX: d.positionX,
+      positionY: d.positionY,
+      positionZ: d.positionZ,
+      deviceScale: d.deviceScale,
+    })),
+  }
 }
 
 function toDeviceInstance(td: TemplateDevice, carry?: DeviceInstance): DeviceInstance {

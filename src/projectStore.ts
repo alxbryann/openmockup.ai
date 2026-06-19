@@ -1,5 +1,6 @@
 import type { AspectPreset, DeviceInstance } from './store'
 import { LIGHTING_DEFAULTS } from './store'
+import type { CameraKeyframe, CameraMotionPresetId } from './cameraMotionPresets'
 import { isSupabaseConfigured } from './supabase'
 import { SupabaseProjectStore } from './supabaseProjectStore'
 
@@ -18,6 +19,8 @@ export type ProjectSnapshot = {
   environmentIntensity?: number
   ambientIntensity?: number
   keyLightIntensity?: number
+  cameraMotion?: null | { presetId: CameraMotionPresetId; durationSec: number; loop: boolean }
+  cameraKeyframes?: CameraKeyframe[]
 }
 
 export type Project = {
@@ -214,6 +217,8 @@ export function snapshotFromStoreState(s: {
   environmentIntensity: number
   ambientIntensity: number
   keyLightIntensity: number
+  cameraMotion: null | { presetId: CameraMotionPresetId; durationSec: number; loop: boolean }
+  cameraKeyframes: CameraKeyframe[]
 }): ProjectSnapshot {
   return {
     devices: s.devices.map((d) => ({ ...d, deviceRotation: [...d.deviceRotation] as [number, number, number] })),
@@ -230,6 +235,16 @@ export function snapshotFromStoreState(s: {
     environmentIntensity: s.environmentIntensity,
     ambientIntensity: s.ambientIntensity,
     keyLightIntensity: s.keyLightIntensity,
+    cameraMotion: s.cameraMotion ? { ...s.cameraMotion } : null,
+    cameraKeyframes: s.cameraKeyframes.map((k) => ({
+      time: k.time,
+      pose: {
+        cameraPosition: [...k.pose.cameraPosition] as [number, number, number],
+        cameraTarget: [...k.pose.cameraTarget] as [number, number, number],
+        orbitDistance: k.pose.orbitDistance,
+        cameraRoll: k.pose.cameraRoll,
+      },
+    })),
   }
 }
 

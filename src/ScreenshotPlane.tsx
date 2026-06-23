@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { invalidate, useFrame, useThree } from '@react-three/fiber'
 import { useStore, type ScreenMediaKind } from './store'
+import { buildComparisonCanvas } from './comparisonScreen'
 import {
   SCREEN_VIDEO_LOAD_ERROR,
   createScreenVideoElement,
@@ -147,6 +148,15 @@ export function ScreenshotPlane({
   const videoStartTime = useStore(
     (s) => s.devices.find((d) => d.id === deviceId)?.videoStartTime ?? 0,
   )
+  const comparisonEnabled = useStore(
+    (s) => s.devices.find((d) => d.id === deviceId)?.comparisonEnabled ?? false,
+  )
+  const beforeScreenshot = useStore(
+    (s) => s.devices.find((d) => d.id === deviceId)?.beforeScreenshot ?? null,
+  )
+  const comparisonSplit = useStore(
+    (s) => s.devices.find((d) => d.id === deviceId)?.comparisonSplit ?? 0.5,
+  )
 
   useDeviceScreenVideo(deviceId, kind === 'video' ? screenVideo : null)
   useApplyVideoStartTime(deviceId, kind === 'video' ? screenVideo : null, videoStartTime)
@@ -204,18 +214,26 @@ export function ScreenshotPlane({
     }
 
     const loader = new THREE.TextureLoader()
-    loader.load(
-      screenshot,
-      (tex) => {
+    const loadTex = async () => {
+      if (comparisonEnabled && beforeScreenshot && screenshot) {
+        const canvas = await buildComparisonCanvas(beforeScreenshot, screenshot, comparisonSplit)
+        return new THREE.CanvasTexture(canvas)
+      }
+      return new Promise<THREE.Texture>((resolve, reject) => {
+        loader.load(screenshot, resolve, undefined, reject)
+      })
+    }
+
+    loadTex()
+      .then((tex) => {
         if (cancelled) {
           tex.dispose()
           return
         }
         applyLoadedTexture(mat, tex, gl)
         onLoadError?.(null)
-      },
-      undefined,
-      () => {
+      })
+      .catch(() => {
         if (cancelled) return
         mat.map?.dispose()
         mat.map = null
@@ -224,8 +242,7 @@ export function ScreenshotPlane({
         onLoadError?.(
           'No se pudo mostrar la imagen en 3D. Prueba JPEG o PNG, o exporta la captura sin HEIC.',
         )
-      },
-    )
+      })
 
     return () => {
       cancelled = true
@@ -235,7 +252,7 @@ export function ScreenshotPlane({
       mat.needsUpdate = true
     }
     /* eslint-enable react-hooks/immutability */
-  }, [screenshot, kind, deviceId, gl, mat, onLoadError])
+  }, [screenshot, kind, deviceId, gl, mat, onLoadError, comparisonEnabled, beforeScreenshot, comparisonSplit])
 
   useFrame(() => {
     if (kind !== 'video' || !(mat.map instanceof THREE.VideoTexture)) return

@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import type { ColorSpace } from 'three'
 import { findGradientPreset, drawGradientToCtx } from './gradients'
+import type { LogoWatermark } from './store'
+import { compositeLogoWatermark } from './watermark'
 
 /** Reads WebGL render target pixels, flips Y, composites over bgCss. Returns HTMLCanvasElement. */
 function renderTargetToCanvas(
@@ -70,6 +72,8 @@ export type CaptureSceneOptions = {
   transparent?: boolean
   /** CSS background string (hex or gradient) for compositing into the export */
   bgCss?: string
+  /** Optional logo watermark applied after render */
+  logoWatermark?: LogoWatermark | null
 }
 
 function renderSceneOffscreen(
@@ -125,7 +129,11 @@ function renderSceneOffscreen(
     gl.setRenderTarget(prevTarget)
     gl.xr.enabled = prevXR
 
-    return renderTargetToCanvas(gl, rt, width, height, needsBgComposite ? bgCss : undefined)
+    const canvas = renderTargetToCanvas(gl, rt, width, height, needsBgComposite ? bgCss : undefined)
+    if (options?.logoWatermark?.url) {
+      compositeLogoWatermark(canvas, options.logoWatermark)
+    }
+    return canvas
   } finally {
     if (transparent || needsBgComposite) {
       scene.background = prevBg

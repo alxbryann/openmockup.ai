@@ -20,6 +20,7 @@ export function BatchExportPanel({ onClose }: Props) {
   const [exportPreset, setExportPreset] = useState<'screen' | 1920 | 3840>(1920)
   const [transparent, setTransparent] = useState(false)
   const [useServer, setUseServer] = useState(Boolean(user))
+  const [webhookUrl, setWebhookUrl] = useState('')
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0, name: '' })
   const [error, setError] = useState<string | null>(null)
@@ -63,6 +64,7 @@ export function BatchExportPanel({ onClose }: Props) {
               aspectPreset,
               exportPreset,
               transparent,
+              webhookUrl: webhookUrl.trim() || undefined,
               signal: abortRef.current.signal,
               onProgress,
             })
@@ -164,9 +166,19 @@ export function BatchExportPanel({ onClose }: Props) {
         )}
 
         {useServer && serverAvailable && (
-          <p style={{ fontSize: 11, color: 'var(--accent)', margin: '0 0 14px' }}>
-            Renders on Vercel with Playwright — ideal for 4K batches without freezing the browser.
-          </p>
+          <>
+            <p style={{ fontSize: 11, color: 'var(--accent)', margin: '0 0 14px' }}>
+              Renders on Vercel with Playwright — ideal for 4K batches without freezing the browser.
+            </p>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Webhook URL (optional)</label>
+            <input
+              type="url"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              placeholder="https://hooks.slack.com/..."
+              style={{ width: '100%', marginBottom: 14, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--fg)' }}
+            />
+          </>
         )}
 
         <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Template</label>

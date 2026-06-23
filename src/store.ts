@@ -35,6 +35,30 @@ export const LIGHTING_DEFAULTS = {
   keyLightIntensity: 1.05,
 } as const
 
+export const SHADOW_DEFAULTS = {
+  shadowOpacity: 0.55,
+  shadowBlur: 2.8,
+  shadowFar: 12,
+  shadowScaleMult: 1,
+} as const
+
+export type LogoWatermarkPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'center'
+
+export type LogoWatermark = {
+  url: string | null
+  opacity: number
+  /** Fraction of export width. */
+  scale: number
+  position: LogoWatermarkPosition
+}
+
+export const LOGO_WATERMARK_DEFAULTS: LogoWatermark = {
+  url: null,
+  opacity: 0.85,
+  scale: 0.12,
+  position: 'bottom-right',
+}
+
 export type DeviceInstance = {
   id: string
   screenshot: string | null
@@ -49,6 +73,11 @@ export type DeviceInstance = {
   videoStartTime: number
   /** Export clip end time in seconds (video only). null = not set. */
   videoEndTime: number | null
+  /** Optional "before" image for wipe comparison on this device's screen. */
+  beforeScreenshot?: string | null
+  comparisonEnabled?: boolean
+  /** 0–1 wipe position (before on the left). */
+  comparisonSplit?: number
   deviceKind: DeviceKind
   deviceColor: string
   deviceRotation: [number, number, number]
@@ -75,6 +104,9 @@ function makeDevice(positionX = 0): DeviceInstance {
     positionY: 0,
     positionZ: 0,
     deviceScale: 1,
+    beforeScreenshot: null,
+    comparisonEnabled: false,
+    comparisonSplit: 0.5,
   }
 }
 
@@ -95,6 +127,11 @@ type State = {
   environmentIntensity: number
   ambientIntensity: number
   keyLightIntensity: number
+  shadowOpacity: number
+  shadowBlur: number
+  shadowFar: number
+  shadowScaleMult: number
+  logoWatermark: LogoWatermark
   mediaUploadInFlight: boolean
   cameraMotion: null | { presetId: CameraMotionPresetId; durationSec: number; loop: boolean }
   cameraKeyframes: CameraKeyframe[]
@@ -132,6 +169,13 @@ type State = {
   setAmbientIntensity: (v: number) => void
   setKeyLightIntensity: (v: number) => void
   resetLighting: () => void
+  setShadowOpacity: (v: number) => void
+  setShadowBlur: (v: number) => void
+  setShadowFar: (v: number) => void
+  setShadowScaleMult: (v: number) => void
+  resetShadow: () => void
+  setLogoWatermark: (w: Partial<LogoWatermark>) => void
+  applyDeviceWall: (devices: DeviceInstance[]) => void
   setMediaUploadInFlight: (v: boolean) => void
   setCameraMotion: (m: State['cameraMotion']) => void
   setCameraKeyframes: (k: CameraKeyframe[]) => void
@@ -160,6 +204,11 @@ type State = {
     environmentIntensity?: number
     ambientIntensity?: number
     keyLightIntensity?: number
+    shadowOpacity?: number
+    shadowBlur?: number
+    shadowFar?: number
+    shadowScaleMult?: number
+    logoWatermark?: LogoWatermark
     cameraMotion?: null | { presetId: CameraMotionPresetId; durationSec: number; loop: boolean }
     cameraKeyframes?: CameraKeyframe[]
   }) => void
@@ -199,6 +248,11 @@ export const useStore = create<State>((set) => ({
   environmentIntensity: LIGHTING_DEFAULTS.environmentIntensity,
   ambientIntensity: LIGHTING_DEFAULTS.ambientIntensity,
   keyLightIntensity: LIGHTING_DEFAULTS.keyLightIntensity,
+  shadowOpacity: SHADOW_DEFAULTS.shadowOpacity,
+  shadowBlur: SHADOW_DEFAULTS.shadowBlur,
+  shadowFar: SHADOW_DEFAULTS.shadowFar,
+  shadowScaleMult: SHADOW_DEFAULTS.shadowScaleMult,
+  logoWatermark: { ...LOGO_WATERMARK_DEFAULTS },
   mediaUploadInFlight: false,
   cameraMotion: { presetId: 'hero_sweep', durationSec: 6, loop: false },
   cameraKeyframes: [],
@@ -297,6 +351,19 @@ export const useStore = create<State>((set) => ({
   setAmbientIntensity: (v) => set({ ambientIntensity: Math.max(0, Math.min(1, v)) }),
   setKeyLightIntensity: (v) => set({ keyLightIntensity: Math.max(0, Math.min(2, v)) }),
   resetLighting: () => set({ ...LIGHTING_DEFAULTS }),
+  setShadowOpacity: (v) => set({ shadowOpacity: Math.max(0, Math.min(1, v)) }),
+  setShadowBlur: (v) => set({ shadowBlur: Math.max(0, Math.min(10, v)) }),
+  setShadowFar: (v) => set({ shadowFar: Math.max(1, Math.min(40, v)) }),
+  setShadowScaleMult: (v) => set({ shadowScaleMult: Math.max(0.3, Math.min(3, v)) }),
+  resetShadow: () => set({ ...SHADOW_DEFAULTS }),
+  setLogoWatermark: (w) =>
+    set((s) => ({ logoWatermark: { ...s.logoWatermark, ...w } })),
+  applyDeviceWall: (devices) =>
+    set((s) => ({
+      devices,
+      activeDeviceId: devices[0]?.id ?? s.activeDeviceId,
+      hydrationSeq: s.hydrationSeq + 1,
+    })),
   setMediaUploadInFlight: (v) => set({ mediaUploadInFlight: v }),
   setCameraMotion: (m) => set({ cameraMotion: m }),
   setCameraKeyframes: (k) => set({ cameraKeyframes: k }),
@@ -358,6 +425,9 @@ export const useStore = create<State>((set) => ({
             d.screenMediaKind ?? (d.screenshot ? 'image' : null),
           videoStartTime: d.videoStartTime ?? 0,
           videoEndTime: d.videoEndTime ?? null,
+          beforeScreenshot: d.beforeScreenshot ?? null,
+          comparisonEnabled: d.comparisonEnabled ?? false,
+          comparisonSplit: d.comparisonSplit ?? 0.5,
           positionZ: d.positionZ ?? 0,
           positionY: d.positionY ?? 0,
           deviceScale: clampDeviceScale(d.deviceScale ?? 1),
@@ -383,6 +453,11 @@ export const useStore = create<State>((set) => ({
         environmentIntensity: snap.environmentIntensity ?? LIGHTING_DEFAULTS.environmentIntensity,
         ambientIntensity: snap.ambientIntensity ?? LIGHTING_DEFAULTS.ambientIntensity,
         keyLightIntensity: snap.keyLightIntensity ?? LIGHTING_DEFAULTS.keyLightIntensity,
+        shadowOpacity: snap.shadowOpacity ?? SHADOW_DEFAULTS.shadowOpacity,
+        shadowBlur: snap.shadowBlur ?? SHADOW_DEFAULTS.shadowBlur,
+        shadowFar: snap.shadowFar ?? SHADOW_DEFAULTS.shadowFar,
+        shadowScaleMult: snap.shadowScaleMult ?? SHADOW_DEFAULTS.shadowScaleMult,
+        logoWatermark: snap.logoWatermark ?? { ...LOGO_WATERMARK_DEFAULTS },
         cameraMotion: snap.cameraMotion ?? { presetId: 'hero_sweep', durationSec: 6, loop: false },
         cameraKeyframes: snap.cameraKeyframes?.map((k) => ({
           time: k.time,

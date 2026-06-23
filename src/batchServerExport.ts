@@ -10,6 +10,7 @@ export type ServerBatchOpts = {
   aspectPreset?: AspectPreset
   exportPreset?: 'screen' | 1920 | 3840
   transparent?: boolean
+  webhookUrl?: string
   onProgress?: (done: number, total: number, status: string) => void
   signal?: AbortSignal
 }
@@ -44,7 +45,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 export async function runServerBatchExport(opts: ServerBatchOpts): Promise<Blob> {
-  const { items, templateId, aspectPreset = 'free', exportPreset = 1920, transparent, onProgress, signal } = opts
+  const { items, templateId, aspectPreset = 'free', exportPreset = 1920, transparent, webhookUrl, onProgress, signal } = opts
 
   if (items.length === 0) throw new Error('No files to export')
   if (items.length > 20) throw new Error('Maximum 20 files per server batch')
@@ -74,7 +75,7 @@ export async function runServerBatchExport(opts: ServerBatchOpts): Promise<Blob>
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ items: imageItems, scene }),
+    body: JSON.stringify({ items: imageItems, scene, webhookUrl: webhookUrl || undefined }),
     signal,
   })
 

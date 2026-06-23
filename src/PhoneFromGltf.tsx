@@ -12,6 +12,7 @@ import {
   drawPhoneGltfScreenFrame,
   waitForVideoReady,
 } from './screenMedia'
+import { buildComparisonCanvas } from './comparisonScreen'
 import { useApplyVideoStartTime, useDeviceScreenVideo } from './useDeviceScreenVideo'
 
 const MODEL_URL = '/models/iphone17pro.glb'
@@ -53,6 +54,15 @@ export function PhoneFromGltf({
   const kind = screenshot ? (screenMediaKind ?? 'image') : null
   const videoStartTime = useStore(
     (s) => s.devices.find((d) => d.id === deviceId)?.videoStartTime ?? 0,
+  )
+  const comparisonEnabled = useStore(
+    (s) => s.devices.find((d) => d.id === deviceId)?.comparisonEnabled ?? false,
+  )
+  const beforeScreenshot = useStore(
+    (s) => s.devices.find((d) => d.id === deviceId)?.beforeScreenshot ?? null,
+  )
+  const comparisonSplit = useStore(
+    (s) => s.devices.find((d) => d.id === deviceId)?.comparisonSplit ?? 0.5,
   )
 
   useDeviceScreenVideo(deviceId, kind === 'video' ? screenVideo : null)
@@ -175,7 +185,19 @@ export function PhoneFromGltf({
         return
       }
 
-      buildPhoneGltfTextureFromImage(screenshot)
+      const loadImageTexture = async (): Promise<THREE.Texture> => {
+        if (comparisonEnabled && beforeScreenshot && screenshot) {
+          const canvas = await buildComparisonCanvas(beforeScreenshot, screenshot, comparisonSplit)
+          const tex = new THREE.CanvasTexture(canvas)
+          tex.colorSpace = THREE.SRGBColorSpace
+          tex.flipY = false
+          applyPhoneGltfScreenUv(tex)
+          return tex
+        }
+        return buildPhoneGltfTextureFromImage(screenshot)
+      }
+
+      loadImageTexture()
         .then((tex) => {
           if (cancelled) {
             tex.dispose()
@@ -194,7 +216,7 @@ export function PhoneFromGltf({
       disposeVideo()
       screenMatRef.current = null
     }
-  }, [root, screenshot, kind, deviceId])
+  }, [root, screenshot, kind, deviceId, comparisonEnabled, beforeScreenshot, comparisonSplit])
 
   useFrame(() => {
     const video = screenVideo

@@ -1,5 +1,5 @@
-import type { AspectPreset, DeviceInstance } from './store'
-import { LIGHTING_DEFAULTS } from './store'
+import type { AspectPreset, DeviceInstance, LogoWatermark } from './store'
+import { LIGHTING_DEFAULTS, SHADOW_DEFAULTS, LOGO_WATERMARK_DEFAULTS } from './store'
 import type { CameraKeyframe, CameraMotionPresetId } from './cameraMotionPresets'
 import { isSupabaseConfigured } from './supabase'
 import { SupabaseProjectStore } from './supabaseProjectStore'
@@ -21,6 +21,11 @@ export type ProjectSnapshot = {
   keyLightIntensity?: number
   cameraMotion?: null | { presetId: CameraMotionPresetId; durationSec: number; loop: boolean }
   cameraKeyframes?: CameraKeyframe[]
+  shadowOpacity?: number
+  shadowBlur?: number
+  shadowFar?: number
+  shadowScaleMult?: number
+  logoWatermark?: LogoWatermark
 }
 
 export type Project = {
@@ -106,6 +111,11 @@ function defaultSnapshot(): ProjectSnapshot {
     environmentIntensity: LIGHTING_DEFAULTS.environmentIntensity,
     ambientIntensity: LIGHTING_DEFAULTS.ambientIntensity,
     keyLightIntensity: LIGHTING_DEFAULTS.keyLightIntensity,
+    shadowOpacity: SHADOW_DEFAULTS.shadowOpacity,
+    shadowBlur: SHADOW_DEFAULTS.shadowBlur,
+    shadowFar: SHADOW_DEFAULTS.shadowFar,
+    shadowScaleMult: SHADOW_DEFAULTS.shadowScaleMult,
+    logoWatermark: { ...LOGO_WATERMARK_DEFAULTS },
   }
 }
 
@@ -219,6 +229,11 @@ export function snapshotFromStoreState(s: {
   keyLightIntensity: number
   cameraMotion: null | { presetId: CameraMotionPresetId; durationSec: number; loop: boolean }
   cameraKeyframes: CameraKeyframe[]
+  shadowOpacity: number
+  shadowBlur: number
+  shadowFar: number
+  shadowScaleMult: number
+  logoWatermark: LogoWatermark
 }): ProjectSnapshot {
   return {
     devices: s.devices.map((d) => ({ ...d, deviceRotation: [...d.deviceRotation] as [number, number, number] })),
@@ -245,6 +260,11 @@ export function snapshotFromStoreState(s: {
         cameraRoll: k.pose.cameraRoll,
       },
     })),
+    shadowOpacity: s.shadowOpacity,
+    shadowBlur: s.shadowBlur,
+    shadowFar: s.shadowFar,
+    shadowScaleMult: s.shadowScaleMult,
+    logoWatermark: { ...s.logoWatermark },
   }
 }
 

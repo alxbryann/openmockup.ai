@@ -17,6 +17,19 @@ function getSupabaseAdmin() {
 type BatchBody = {
   items: Array<{ name: string; imageDataUrl: string }>
   scene?: Record<string, unknown>
+  webhookUrl?: string
+}
+
+async function deliverWebhook(url: string, payload: Record<string, unknown>) {
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch (e) {
+    console.error('Webhook delivery failed', e)
+  }
 }
 
 async function processBatchJob(jobId: string, userId: string, body: BatchBody) {
@@ -65,11 +78,26 @@ async function processBatchJob(jobId: string, userId: string, body: BatchBody) {
     if (upErr) throw upErr
 
     await update({ status: 'done', progress: 100, result_path: resultPath })
+    if (body.webhookUrl) {
+      const { data: signed } = await supabase.storage
+        .from('render-results')
+        .createSignedUrl(resultPath, 3600)
+      void deliverWebhook(body.webhookUrl, {
+        jobId,
+        status: 'done',
+        progress: 100,
+        downloadUrl: signed?.signedUrl,
+      })
+    }
   } catch (e) {
+    const message = e instanceof Error ? e.message : 'Batch render failed'
     await update({
       status: 'failed',
-      error_message: e instanceof Error ? e.message : 'Batch render failed',
+      error_message: message,
     })
+    if (body.webhookUrl) {
+      void deliverWebhook(body.webhookUrl, { jobId, status: 'failed', error: message })
+    }
   } finally {
     await browser?.close()
   }

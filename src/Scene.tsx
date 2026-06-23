@@ -722,11 +722,19 @@ function SceneCaptureRegistration() {
 
     const pngImpl = (width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => {
       refreshVideoTextures()
-      return captureSceneToPngDataUrl(gl, scene, camera as THREE.PerspectiveCamera, width, height, opts)
+      const logo = useStore.getState().logoWatermark
+      return captureSceneToPngDataUrl(gl, scene, camera as THREE.PerspectiveCamera, width, height, {
+        ...opts,
+        logoWatermark: logo.url ? logo : null,
+      })
     }
     const canvasImpl = (width: number, height: number, opts?: { transparent?: boolean; bgCss?: string }) => {
       refreshVideoTextures()
-      return captureSceneToCanvas(gl, scene, camera as THREE.PerspectiveCamera, width, height, opts)
+      const logo = useStore.getState().logoWatermark
+      return captureSceneToCanvas(gl, scene, camera as THREE.PerspectiveCamera, width, height, {
+        ...opts,
+        logoWatermark: logo.url ? logo : null,
+      })
     }
 
     setCaptureSceneAtSize(pngImpl)
@@ -742,6 +750,10 @@ function SceneCaptureRegistration() {
 }
 
 function SceneContactShadows({ deviceKind }: { deviceKind: DeviceKind }) {
+  const shadowOpacity = useStore((s) => s.shadowOpacity)
+  const shadowBlur = useStore((s) => s.shadowBlur)
+  const shadowFar = useStore((s) => s.shadowFar)
+  const shadowScaleMult = useStore((s) => s.shadowScaleMult)
   const groupRef = useRef<THREE.Group>(null)
   useLayoutEffect(() => {
     const g = groupRef.current
@@ -752,15 +764,16 @@ function SceneContactShadows({ deviceKind }: { deviceKind: DeviceKind }) {
       }
     })
   }, [deviceKind])
-  const scale = deviceKind === 'mac' ? 34 : deviceKind === 'ipad' ? 28 : deviceKind === 'watch' ? 12 : 22
+  const baseScale = deviceKind === 'mac' ? 34 : deviceKind === 'ipad' ? 28 : deviceKind === 'watch' ? 12 : 22
+  const scale = baseScale * shadowScaleMult
   return (
     <ContactShadows
       ref={groupRef}
       position={[0, -9, 0]}
-      opacity={0.55}
+      opacity={shadowOpacity}
       scale={scale}
-      blur={2.8}
-      far={12}
+      blur={shadowBlur}
+      far={shadowFar}
     />
   )
 }

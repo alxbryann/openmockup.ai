@@ -48,6 +48,11 @@ import { AgentPanel } from './AgentPanel'
 import { BatchExportPanel } from './BatchExportPanel'
 import { MotionPanel } from './MotionPanel'
 import { MotionTimeline } from './MotionTimeline'
+import { buildDeviceWall } from './deviceWall'
+import { listBrandKits, saveBrandKit, brandKitToWatermark, type BrandKit } from './brandKits'
+import { saveProjectRevision } from './projectHistory'
+import { ProjectHistoryPanel } from './ProjectHistoryPanel'
+import { preloadLogo } from './watermark'
 
 type AppProps = { initialProjectId?: string | null }
 
@@ -110,6 +115,7 @@ const BG_SWATCHES = ['#0a0a0a', '#ffffff', '#0f172a', '#14532d', '#5c4033', '#f4
 
 export default function App({ initialProjectId = null }: AppProps = {}) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const beforeFileRef = useRef<HTMLInputElement>(null)
   const sceneHostRef = useRef<HTMLDivElement>(null)
   const [sidePanelOpen, setSidePanelOpen] = useState(true)
   const [studioView, setStudioView] = useState<'normal' | 'agent'>('normal')
@@ -156,12 +162,26 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
   const setAmbientIntensity = useStore((s) => s.setAmbientIntensity)
   const setKeyLightIntensity = useStore((s) => s.setKeyLightIntensity)
   const resetLighting = useStore((s) => s.resetLighting)
+  const shadowOpacity = useStore((s) => s.shadowOpacity)
+  const shadowBlur = useStore((s) => s.shadowBlur)
+  const shadowFar = useStore((s) => s.shadowFar)
+  const shadowScaleMult = useStore((s) => s.shadowScaleMult)
+  const setShadowOpacity = useStore((s) => s.setShadowOpacity)
+  const setShadowBlur = useStore((s) => s.setShadowBlur)
+  const setShadowFar = useStore((s) => s.setShadowFar)
+  const setShadowScaleMult = useStore((s) => s.setShadowScaleMult)
+  const resetShadow = useStore((s) => s.resetShadow)
+  const logoWatermark = useStore((s) => s.logoWatermark)
+  const setLogoWatermark = useStore((s) => s.setLogoWatermark)
+  const applyDeviceWall = useStore((s) => s.applyDeviceWall)
   const applyCameraPreset = useStore((s) => s.applyCameraPreset)
   const applySceneSnapshot = useStore((s) => s.applySceneSnapshot)
   const cameraMotion = useStore((s) => s.cameraMotion)
   const cameraKeyframes = useStore((s) => s.cameraKeyframes)
 
   const [userTemplates, setUserTemplates] = useState<SceneTemplate[]>(() => listUserTemplates())
+  const [brandKits, setBrandKits] = useState<BrandKit[]>(() => listBrandKits())
+  const [historyOpen, setHistoryOpen] = useState(false)
   const allTemplates = [...SCENE_TEMPLATES, ...userTemplates]
 
   const [userCameraPresets, setUserCameraPresets] = useState<CameraPreset[]>(() => listUserCameraPresets())
@@ -204,6 +224,44 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     if (!window.confirm('¿Eliminar este template personalizado?')) return
     setUserTemplates(deleteUserTemplate(id))
   }, [])
+
+  const handleApplyBrandKit = useCallback(
+    (kit: BrandKit) => {
+      setBgColor(kit.bgColor)
+      devices.forEach((d) => updateDevice(d.id, { deviceColor: kit.deviceColor }))
+      const wm = brandKitToWatermark(kit)
+      if (wm) {
+        preloadLogo(wm.url!)
+        setLogoWatermark(wm)
+      }
+    },
+    [devices, setBgColor, updateDevice, setLogoWatermark],
+  )
+
+  const handleSaveBrandKit = useCallback(() => {
+    const name = window.prompt('Nombre del brand kit')
+    if (!name?.trim()) return
+    const s = useStore.getState()
+    const active = s.devices.find((d) => d.id === s.activeDeviceId) ?? s.devices[0]
+    const kit: BrandKit = {
+      id: `brand-${crypto.randomUUID()}`,
+      name: name.trim(),
+      bgColor: s.bgColor,
+      deviceColor: active.deviceColor,
+      colors: [s.bgColor, active.deviceColor],
+      logoUrl: s.logoWatermark.url,
+      logoOpacity: s.logoWatermark.opacity,
+      logoScale: s.logoWatermark.scale,
+    }
+    setBrandKits(saveBrandKit(kit))
+  }, [])
+
+  const handleCreateDeviceWall = useCallback((count: number) => {
+    const s = useStore.getState()
+    const active = s.devices.find((d) => d.id === s.activeDeviceId) ?? s.devices[0]
+    const wall = buildDeviceWall({ count, kind: active.deviceKind, source: active })
+    applyDeviceWall(wall)
+  }, [applyDeviceWall])
 
   const { user } = useAuth()
   const mediaUploadInFlight = useStore((s) => s.mediaUploadInFlight)
@@ -417,6 +475,11 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         keyLightIntensity: s.keyLightIntensity,
         cameraMotion: s.cameraMotion,
         cameraKeyframes: s.cameraKeyframes,
+        shadowOpacity: s.shadowOpacity,
+        shadowBlur: s.shadowBlur,
+        shadowFar: s.shadowFar,
+        shadowScaleMult: s.shadowScaleMult,
+        logoWatermark: s.logoWatermark,
       })
       const thumbnail = await captureProjectThumbnail(s.bgColor, s.viewportInsetRight)
       // Capturing the thumbnail is async; re-check before persisting in case the
@@ -430,6 +493,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         // Only refresh the active project if it is still the one we just saved;
         // otherwise we'd clobber the header/active project back to the old one.
         if (activeProjectIdRef.current === projectId) setActiveProject(p)
+        saveProjectRevision(projectId, snapshot, thumbnail)
       } catch (e) {
         console.error('autosave failed', e)
       }
@@ -440,7 +504,7 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
     if (autosaveMaxWaitRef.current == null) {
       autosaveMaxWaitRef.current = window.setTimeout(commitSave, 2500)
     }
-  }, [activeProject, devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight, aspectPreset, environmentIntensity, ambientIntensity, keyLightIntensity, cameraMotion, cameraKeyframes, mediaUploadInFlight])
+  }, [activeProject, devices, bgColor, uiTheme, cameraRoll, orbitDistance, autoRotate, cameraPosition, cameraTarget, viewportAspect, viewportInsetRight, aspectPreset, environmentIntensity, ambientIntensity, keyLightIntensity, cameraMotion, cameraKeyframes, shadowOpacity, shadowBlur, shadowFar, shadowScaleMult, logoWatermark, mediaUploadInFlight])
 
   // Cancel any pending autosave for the previous project when the active
   // project changes (or when the studio unmounts). Without this, the 2.5 s
@@ -917,6 +981,19 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
             )}
             <span style={{ opacity: 0.4 }}>▾</span>
           </button>
+          {activeProject && (
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(true)}
+              title="Historial de versiones"
+              className="flex cursor-pointer rounded-lg border-0 bg-transparent px-2 py-1.5 text-xs transition"
+              style={{ color: 'rgba(255,255,255,.45)', font: '500 12px/1 var(--font-sans)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,.08)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+            >
+              Historial
+            </button>
+          )}
           {studioView === 'normal' && (
             <button
               type="button"
@@ -1222,6 +1299,18 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   ✕ Eliminar dispositivo {devices.findIndex((d) => d.id === activeDeviceId) + 1}
                 </button>
               )}
+
+              <SubLabel className="mt-3">Device wall</SubLabel>
+              <p style={{ font: '400 10px/1.4 var(--font-sans)', color: 'rgba(255,255,255,.4)', margin: '0 0 6px' }}>
+                Grid de dispositivos con la misma captura.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {[3, 4, 6, 9].map((n) => (
+                  <Pill key={n} onClick={() => handleCreateDeviceWall(n)} className="px-2.5 py-1">
+                    {n}×
+                  </Pill>
+                ))}
+              </div>
             </Section>
 
             {/* 2 · CONTENT — image or video for active device */}
@@ -1291,6 +1380,61 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   {screenLoadError}
                 </p>
               )}
+
+              {screenshot && screenMediaKind !== 'video' && (
+                <>
+                  <SubLabel className="mt-3">Before / After</SubLabel>
+                  <label className="flex items-center gap-2 text-xs" style={{ color: 'rgba(255,255,255,.55)' }}>
+                    <input
+                      type="checkbox"
+                      checked={activeDevice.comparisonEnabled ?? false}
+                      onChange={(e) => updateDevice(activeDevice.id, { comparisonEnabled: e.target.checked })}
+                    />
+                    Comparación con wipe
+                  </label>
+                  {activeDevice.comparisonEnabled && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => beforeFileRef.current?.click()}
+                        className="mt-1 w-full cursor-pointer rounded-lg border-0 py-2 text-xs"
+                        style={{ background: 'rgba(255,255,255,.06)', color: 'rgba(255,255,255,.75)' }}
+                      >
+                        {activeDevice.beforeScreenshot ? 'Cambiar imagen "before"' : 'Subir imagen "before"'}
+                      </button>
+                      <input
+                        ref={beforeFileRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0]
+                          if (!f) return
+                          const r = new FileReader()
+                          r.onload = () =>
+                            updateDevice(activeDevice.id, { beforeScreenshot: r.result as string })
+                          r.readAsDataURL(f)
+                          e.target.value = ''
+                        }}
+                      />
+                      <label className="mt-2 flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
+                        <span className="w-14 shrink-0">Split</span>
+                        <input
+                          type="range"
+                          min={0.05}
+                          max={0.95}
+                          step={0.01}
+                          value={activeDevice.comparisonSplit ?? 0.5}
+                          onChange={(e) =>
+                            updateDevice(activeDevice.id, { comparisonSplit: Number(e.target.value) })
+                          }
+                          className="min-w-0 flex-1 accent-[var(--accent)]"
+                        />
+                      </label>
+                    </>
+                  )}
+                </>
+              )}
             </Section>
 
             {/* 3 · DESIGN — device type + color */}
@@ -1353,9 +1497,24 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   </div>
                 ))}
               </div>
-            </Section>
 
-            {/* 4 · LAYOUT — position + rotation */}
+              <SubLabel className="mt-3">Brand kits</SubLabel>
+              <div className="flex flex-wrap gap-1.5">
+                {brandKits.map((kit) => (
+                  <Pill key={kit.id} onClick={() => handleApplyBrandKit(kit)} className="px-2 py-1">
+                    {kit.name}
+                  </Pill>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveBrandKit}
+                className="mt-2 w-full cursor-pointer rounded-lg border-0 py-2 text-xs"
+                style={{ background: 'rgba(255,255,255,.06)', color: 'rgba(255,255,255,.75)' }}
+              >
+                Guardar brand kit actual
+              </button>
+            </Section>
             <Section
               id="layout"
               title="Posición y rotación"
@@ -1572,6 +1731,64 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
                   <span className="w-9 shrink-0 tabular-nums text-right">{value.toFixed(2)}</span>
                 </label>
               ))}
+
+              <div className="mt-4 flex items-center justify-between">
+                <span style={{ font: '600 10px/1 var(--font-sans)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.4)' }}>
+                  Sombra
+                </span>
+                <button type="button" onClick={resetShadow} className="cursor-pointer rounded-md border-0 bg-transparent px-2 py-1 text-xs" style={{ color: 'rgba(255,255,255,.45)' }}>
+                  Reset
+                </button>
+              </div>
+              {(
+                [
+                  { label: 'Opacidad', value: shadowOpacity, set: setShadowOpacity, min: 0, max: 1 },
+                  { label: 'Blur', value: shadowBlur, set: setShadowBlur, min: 0, max: 8 },
+                  { label: 'Distancia', value: shadowFar, set: setShadowFar, min: 4, max: 30 },
+                  { label: 'Escala', value: shadowScaleMult, set: setShadowScaleMult, min: 0.5, max: 2 },
+                ] as const
+              ).map(({ label, value, set, min, max }) => (
+                <label key={label} className="mt-1.5 flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
+                  <span className="w-24 shrink-0">{label}</span>
+                  <input type="range" min={min} max={max} step={0.01} value={value} onChange={(e) => set(Number(e.target.value))} className="min-w-0 flex-1 accent-[var(--accent)]" />
+                  <span className="w-9 shrink-0 tabular-nums text-right">{value.toFixed(2)}</span>
+                </label>
+              ))}
+
+              <SubLabel className="mt-4">Logo watermark</SubLabel>
+              <input
+                type="file"
+                accept="image/*"
+                className="mb-2 w-full text-xs"
+                style={{ color: 'rgba(255,255,255,.55)' }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (!f) return
+                  const r = new FileReader()
+                  r.onload = () => {
+                    const url = r.result as string
+                    preloadLogo(url)
+                    setLogoWatermark({ url })
+                  }
+                  r.readAsDataURL(f)
+                  e.target.value = ''
+                }}
+              />
+              {logoWatermark.url && (
+                <>
+                  <label className="mt-1 flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
+                    <span className="w-24 shrink-0">Opacidad</span>
+                    <input type="range" min={0.1} max={1} step={0.05} value={logoWatermark.opacity} onChange={(e) => setLogoWatermark({ opacity: Number(e.target.value) })} className="min-w-0 flex-1 accent-[var(--accent)]" />
+                  </label>
+                  <label className="mt-1 flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,.5)' }}>
+                    <span className="w-24 shrink-0">Tamaño</span>
+                    <input type="range" min={0.04} max={0.3} step={0.01} value={logoWatermark.scale} onChange={(e) => setLogoWatermark({ scale: Number(e.target.value) })} className="min-w-0 flex-1 accent-[var(--accent)]" />
+                  </label>
+                  <button type="button" onClick={() => setLogoWatermark({ url: null })} className="mt-1 border-0 bg-transparent p-0 text-xs cursor-pointer" style={{ color: 'rgba(255,160,180,.85)' }}>
+                    Quitar logo
+                  </button>
+                </>
+              )}
 
               <div className="mt-4 flex items-center justify-between gap-3">
                 <span className="flex flex-col">
@@ -1964,6 +2181,14 @@ export default function App({ initialProjectId = null }: AppProps = {}) {
         }}
       />
       {batchOpen && <BatchExportPanel onClose={() => setBatchOpen(false)} />}
+      {activeProject && (
+        <ProjectHistoryPanel
+          projectId={activeProject.id}
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          onRestore={(snap) => hydrateFromSnapshot(snap)}
+        />
+      )}
     </div>
   )
 }
